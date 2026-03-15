@@ -20,7 +20,7 @@ REPORTS_DIR   = os.path.join(OUTPUT_DIR, "reports")
 LOG_DIR       = os.path.join(OUTPUT_DIR, "logs")
 
 # ── 데이터 파일 경로 ────────────────────────────────────────
-DATASET_PATH              = os.path.join(DATA_DIR, "dataset.csv")
+DATASET_PATH              = os.path.join(DATA_DIR, "dataset_new.csv")
 PAIRS_CSV_PATH            = os.path.join(DATA_DIR, "contrastive_pairs.csv")
 EMBEDDINGS_BASELINE_PATH  = os.path.join(DATA_DIR, "embeddings_baseline.npy")
 EMBEDDINGS_FINETUNED_PATH = os.path.join(DATA_DIR, "embeddings_finetuned.npy")
@@ -54,7 +54,7 @@ LR_SOLVER    = "lbfgs"
 LR_KFOLD     = 5
 
 # ── 추론 파라미터 ───────────────────────────────────────────
-CONFIDENCE_THRESHOLD = 0.5
+CONFIDENCE_THRESHOLD = 0.4
 
 # ── 디렉터리 자동 생성 ──────────────────────────────────────
 for _dir in [DATA_DIR, MODEL_DIR, SRC_DIR, NOTEBOOK_DIR,

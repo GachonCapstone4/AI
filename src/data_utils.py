@@ -18,6 +18,7 @@ from config import (
 random.seed(RANDOM_SEED)
 
 
+# ── 데이터 로드 및 검증 ─────────────────────────────────────
 def load_dataset(path: str = DATASET_PATH) -> pd.DataFrame:
     """dataset.csv 로드 및 필수 컬럼 검증 / 결측값 제거"""
     df = pd.read_csv(path)
@@ -29,6 +30,7 @@ def load_dataset(path: str = DATASET_PATH) -> pd.DataFrame:
     return df
 
 
+# ── Contrastive Pair 생성 ───────────────────────────────────
 def generate_contrastive_pairs(df: pd.DataFrame) -> list:
     """
     Positive  : 같은 intent
@@ -50,7 +52,7 @@ def generate_contrastive_pairs(df: pd.DataFrame) -> list:
                 label=1.0
             ))
 
-    # Hard Negative pairs
+    # Hard Negative pairs (같은 domain, 다른 intent)
     for domain, domain_df in df.groupby("domain"):
         if domain_df["intent"].nunique() < 2:
             continue
@@ -72,6 +74,7 @@ def generate_contrastive_pairs(df: pd.DataFrame) -> list:
     return pairs
 
 
+# ── Pair CSV 저장 ───────────────────────────────────────────
 def save_pairs_csv(pairs: list, path: str = PAIRS_CSV_PATH) -> None:
     """InputExample 리스트 → CSV 저장"""
     pd.DataFrame([
@@ -81,6 +84,7 @@ def save_pairs_csv(pairs: list, path: str = PAIRS_CSV_PATH) -> None:
     print(f"[save_pairs_csv] 저장 완료 → {path}")
 
 
+# ── Pair CSV 로드 → InputExample 복원 ──────────────────────
 def load_pairs_csv(path: str = PAIRS_CSV_PATH) -> list:
     """CSV → InputExample 리스트 복원"""
     df_pairs = pd.read_csv(path, encoding="utf-8-sig")
@@ -96,6 +100,7 @@ def load_pairs_csv(path: str = PAIRS_CSV_PATH) -> list:
     return pairs
 
 
+# ── train / validation split ────────────────────────────────
 def split_pairs(
     pairs    : list,
     val_ratio: float = 0.1,
@@ -113,6 +118,7 @@ def split_pairs(
     return train_examples, val_examples
 
 
+# ── 임베딩 저장 / 로드 ──────────────────────────────────────
 def save_embeddings(X: np.ndarray, path: str) -> None:
     """임베딩 numpy 배열 저장"""
     np.save(path, X)
