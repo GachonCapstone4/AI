@@ -61,7 +61,7 @@ Capstone_ai/
 |------|------|------|
 | 임베딩 | SBERT (paraphrase-multilingual-MiniLM-L12-v2) | 이메일 텍스트 → 벡터 변환 |
 | 1차 분류 | Logistic Regression | 7개 Domain 분류 |
-| 2차 분류 | Logistic Regression (Domain별) | 31개 Intent 분류 |
+| 2차 분류 | Logistic Regression (Domain별) | 30개 Intent 분류 |
 | 요약/추출 | GPT-4o-mini | 이메일 요약 / 일정 추출 |
 | 답장 생성 | Claude 3.5 Sonnet | 답장 템플릿 초안 생성 |
 
