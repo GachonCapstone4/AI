@@ -29,3 +29,8 @@ __pycache__/
 
 # FastAPI 캐시
 api/__pycache__/
+
+# Virtual Environment
+.venv/
+venv/
+env/
