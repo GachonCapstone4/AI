@@ -1,5 +1,6 @@
 # ============================================================
-# classify 비즈니스 로직 — 라우터 / consumer 공용
+# classify 비즈니스 로직 — 라우터 / consumer 공용 코어 오케스트레이션
+# /classify 와 classify consumer 가 동일한 진입점으로 사용한다.
 # ============================================================
 
 from api.schemas import ClassifyRequest, ClassifyResponse, Classification
@@ -14,6 +15,9 @@ def _preprocess(subject: str, body: str) -> str:
 
 def run_classify(payload: ClassifyRequest, pipeline: dict) -> ClassifyResponse:
     """
+    classify 코어 경로 전용 오케스트레이션.
+    AI 서버의 안정적이고 공식적인 계약은 이 진입점을 기준으로 유지한다.
+
     Parameters
     ----------
     payload  : ClassifyRequest (pydantic)

@@ -15,6 +15,13 @@ from config import (
 )
 
 
+def load_sbert_model(sbert_path=SBERT_MODEL_PATH) -> SentenceTransformer:
+    """답장 초안 등 임베딩 전용 경로에서 사용하는 최소 모델 로더."""
+    model = SentenceTransformer(str(sbert_path))
+    print("[load_sbert_model] SBERT 로드 완료")
+    return model
+
+
 # ── 파이프라인 전체 로드 ────────────────────────────────────
 def load_pipeline(
     sbert_path=SBERT_MODEL_PATH,
@@ -35,6 +42,34 @@ def load_pipeline(
 
     print("[load_pipeline] 파이프라인 로드 완료")
     return pipeline
+
+
+def load_classify_pipeline(
+    sbert_path=SBERT_MODEL_PATH,
+    domain_clf_path=DOMAIN_CLF_PATH,
+    domain_le_path=DOMAIN_LE_PATH,
+    intent_clf_path=INTENT_CLF_PATH,
+    intent_le_path=INTENT_LE_PATH,
+) -> dict:
+    """
+    classify 코어 경로 전용 전체 파이프라인 로더.
+    현재는 기존 load_pipeline 을 감싸는 thin wrapper 로 유지한다.
+    """
+    return load_pipeline(
+        sbert_path=sbert_path,
+        domain_clf_path=domain_clf_path,
+        domain_le_path=domain_le_path,
+        intent_clf_path=intent_clf_path,
+        intent_le_path=intent_le_path,
+    )
+
+
+def load_draft_pipeline(sbert_path=SBERT_MODEL_PATH) -> dict:
+    """
+    draft 내부/실험 경로 전용 최소 파이프라인.
+    초안 생성 후 reply_embedding 계산에 필요한 SBERT 만 로드한다.
+    """
+    return {"sbert": load_sbert_model(sbert_path=sbert_path)}
 
 
 # ── 단일 이메일 추론 ────────────────────────────────────────

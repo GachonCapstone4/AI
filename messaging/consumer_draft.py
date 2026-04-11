@@ -1,6 +1,10 @@
 # ============================================================
 # draft consumer
 #
+# 내부 실험 / fallback 용 deprecated candidate 경로.
+# classify 코어 경로와 분리하기 위해 최소 파이프라인만 사용한다.
+# TODO: draft 가 RAG 서버로 이전되면 이 consumer 는 중계/종료 여부를 재평가한다.
+#
 # Consume : q.2ai.draft   (x.app2ai.direct)
 # Publish : q.2app.draft  (x.ai2app.direct)
 #
@@ -36,7 +40,7 @@ from api.schemas import DraftRequest, ErrorResponse, ResponseMeta
 from api.services.draft_service import run_draft
 from messaging.publisher import publish, AI2APP_EXCHANGE
 from messaging.structured_log import get_logger
-from inference import load_pipeline, predict_email
+from inference import load_draft_pipeline
 
 # ── 설정 ─────────────────────────────────────────────────────
 RABBITMQ_URL    = os.getenv("RABBITMQ_URL", "amqp://admin:admin1234!@192.168.2.20:30672/")
@@ -47,7 +51,7 @@ PREFETCH_COUNT       = 1
 
 log = get_logger("consumer.draft")
 
-_pipeline: dict = {}
+_draft_pipeline: dict = {}
 
 
 # ── 에러 응답 publish ────────────────────────────────────────
@@ -82,7 +86,7 @@ def _callback(ch, method, _properties, body):
                  emailId=email_id, mode=mode)
 
         payload = DraftRequest(**data)
-        result  = run_draft(payload, _pipeline)
+        result  = run_draft(payload, _draft_pipeline)
 
         elapsed_ms = round((time.perf_counter() - t0) * 1000, 2)
         result.meta = ResponseMeta(elapsed_ms=elapsed_ms, source="consumer.draft")
@@ -131,12 +135,12 @@ def _callback(ch, method, _properties, body):
 
 # ── 메인 ─────────────────────────────────────────────────────
 def main():
-    global _pipeline
+    global _draft_pipeline
 
-    log.info("pipeline_loading", queue=CONSUME_QUEUE)
-    model     = load_pipeline()
-    _pipeline = {"model": model, "predict": predict_email}
-    log.info("pipeline_ready",   queue=CONSUME_QUEUE)
+    log.info("pipeline_loading", queue=CONSUME_QUEUE, path_role="draft-deprecated")
+    model     = load_draft_pipeline()
+    _draft_pipeline = {"model": model}
+    log.info("pipeline_ready",   queue=CONSUME_QUEUE, path_role="draft-deprecated")
 
     while True:
         try:

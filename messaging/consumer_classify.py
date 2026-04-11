@@ -29,7 +29,7 @@ from api.schemas import ClassifyRequest, ResponseMeta
 from api.services.classify_service import run_classify
 from messaging.publisher import publish, AI2APP_EXCHANGE
 from messaging.structured_log import get_logger
-from inference import load_pipeline, predict_email
+from inference import load_classify_pipeline, predict_email
 
 # ── 설정 ─────────────────────────────────────────────────────
 RABBITMQ_URL    = os.getenv("RABBITMQ_URL", "amqp://admin:admin1234!@192.168.2.20:30672/")
@@ -40,7 +40,7 @@ PREFETCH_COUNT       = 1
 
 log = get_logger("consumer.classify")
 
-_pipeline: dict = {}
+_classify_pipeline: dict = {}
 
 
 # ── 콜백 ─────────────────────────────────────────────────────
@@ -58,7 +58,7 @@ def _callback(ch, method, _properties, body):
                  queue=CONSUME_QUEUE, outbox_id=outbox_id, email_id=email_id)
 
         payload = ClassifyRequest(**data)
-        result  = run_classify(payload, _pipeline)
+        result  = run_classify(payload, _classify_pipeline)
 
         elapsed_ms = round((time.perf_counter() - t0) * 1000, 2)
         result.meta = ResponseMeta(elapsed_ms=elapsed_ms, source="consumer.classify")
@@ -94,12 +94,12 @@ def _callback(ch, method, _properties, body):
 
 # ── 메인 ─────────────────────────────────────────────────────
 def main():
-    global _pipeline
+    global _classify_pipeline
 
-    log.info("pipeline_loading", queue=CONSUME_QUEUE)
-    model     = load_pipeline()
-    _pipeline = {"model": model, "predict": predict_email}
-    log.info("pipeline_ready",   queue=CONSUME_QUEUE)
+    log.info("pipeline_loading", queue=CONSUME_QUEUE, path_role="classify-core")
+    model     = load_classify_pipeline()
+    _classify_pipeline = {"model": model, "predict": predict_email}
+    log.info("pipeline_ready",   queue=CONSUME_QUEUE, path_role="classify-core")
 
     while True:
         try:
