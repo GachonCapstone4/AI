@@ -1,0 +1,34 @@
+# 버전 관리
+.git
+.gitignore
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+.pytest_cache
+.env
+.venv
+
+# 문서
+*.md
+
+# 개발/테스트
+tests/
+scripts/
+notebooks/
+data/
+
+# 출력 및 모델 (선택사항 - 크기가 크면)
+outputs/
+
+# OS
+.DS_Store
+Thumbs.db
