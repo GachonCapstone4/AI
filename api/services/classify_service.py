@@ -4,7 +4,7 @@
 # ============================================================
 
 from api.schemas import ClassifyRequest, ClassifyResponse, Classification
-from api.services.gpt_service import summarize_email
+from api.services.summarize_service import summarize_email
 
 MIN_SUMMARY_LENGTH = 10
 
@@ -35,10 +35,10 @@ def run_classify(payload: ClassifyRequest, pipeline: dict) -> ClassifyResponse:
         pipeline=pipeline["model"],
     )
 
-    # 2. GPT 요약 + 일정 추출
-    gpt_result = summarize_email(email_text)
-    summary = gpt_result["summary"]
-    schedule_info = gpt_result["schedule"]
+    # 2. LLM 요약 + 일정 추출
+    summarize_result = summarize_email(email_text)
+    summary = summarize_result["summary"]
+    schedule_info = summarize_result["schedule"]
 
     # 3. SBERT 임베딩 — summary 비거나 너무 짧으면 email_text fallback
     embed_text = summary if summary and len(summary) >= MIN_SUMMARY_LENGTH else email_text

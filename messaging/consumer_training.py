@@ -26,13 +26,12 @@ from data_utils import load_dataset, generate_contrastive_pairs, save_pairs_csv
 from train_sbert import run_sbert_finetuning, generate_embeddings
 from train_domain import train_domain_classifier
 from train_intent import train_intent_classifiers
+from src.settings import get_settings
 
 # ── 설정 ─────────────────────────────────────────────────────
-RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://admin:admin1234!@192.168.2.20:30672/")
 CONSUME_QUEUE = "q.2ai.training"
 PUBLISH_ROUTING_KEY = "q.2app.training"
 PREFETCH_COUNT = 1
-SAFE_MODE = os.getenv("TRAINING_SAFE_MODE", "1") == "1"
 
 log = get_logger("consumer.training")
 
@@ -46,7 +45,9 @@ def _build_model_version() -> str:
 
 
 def _run_training_pipeline() -> dict:
-    if SAFE_MODE:
+    safe_mode = get_settings().TRAINING_SAFE_MODE
+
+    if safe_mode:
         return {
             "model_version": _build_model_version(),
             "metrics": TrainingMetrics(intent_f1=0.0, domain_accuracy=0.0),
@@ -219,7 +220,7 @@ def _callback(ch, method, _properties, body):
             job_id=payload.job_id,
             dataset_version=payload.dataset_version,
             requested_by=payload.requested_by,
-            safe_mode=SAFE_MODE,
+            safe_mode=get_settings().TRAINING_SAFE_MODE,
         )
 
         log.info("training_before_run", queue=CONSUME_QUEUE, job_id=payload.job_id)
@@ -300,9 +301,11 @@ def _callback(ch, method, _properties, body):
 
 
 def main():
+    settings = get_settings()
+
     while True:
         try:
-            conn = pika.BlockingConnection(pika.URLParameters(RABBITMQ_URL))
+            conn = pika.BlockingConnection(pika.URLParameters(settings.RABBITMQ_URL))
             ch = conn.channel()
             ch.basic_qos(prefetch_count=PREFETCH_COUNT)
             ch.basic_consume(
@@ -310,7 +313,7 @@ def main():
                 on_message_callback=_callback,
                 auto_ack=False,
             )
-            log.info("consuming", queue=CONSUME_QUEUE, safe_mode=SAFE_MODE)
+            log.info("consuming", queue=CONSUME_QUEUE, safe_mode=settings.TRAINING_SAFE_MODE)
             ch.start_consuming()
 
         except pika.exceptions.AMQPConnectionError as e:

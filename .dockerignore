@@ -12,22 +12,39 @@
 __pycache__
 *.pyc
 *.pyo
+*.pyd
 *.egg-info
 .pytest_cache
+.mypy_cache
+.ruff_cache
+
+# 환경변수
 .env
+.env.*
+!.env.example
 .venv
+venv
 
 # 문서
 *.md
+CLAUDE.md
+RABBITMQ_SPEC.md
+AI_TRAINING_MLOPS_ARCHITECTURE.md
+DRAFT_RAG_MIGRATION_PLAN.md
+ai-retraining-implementation-plan.md
+ai-retraining-pipeline-production-plan.md
 
 # 개발/테스트
 tests/
 scripts/
 notebooks/
 data/
+test_sbert.py
 
-# 출력 및 모델 (선택사항 - 크기가 크면)
+# 출력 및 모델
 outputs/
+models/
+upload_model/
 
 # OS
 .DS_Store

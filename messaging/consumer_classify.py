@@ -30,9 +30,9 @@ from api.services.classify_service import run_classify
 from messaging.publisher import AI2APP_EXCHANGE, enable_delivery_confirms, publish
 from messaging.structured_log import get_logger
 from inference import load_classify_pipeline, predict_email
+from src.settings import get_settings
 
 # ── 설정 ─────────────────────────────────────────────────────
-RABBITMQ_URL    = os.getenv("RABBITMQ_URL", "amqp://admin:admin1234!@192.168.2.20:30672/")
 CONSUME_QUEUE        = "q.2ai.classify"
 PUBLISH_QUEUE        = "q.2app.classify"
 PUBLISH_ROUTING_KEY  = "2app.classify"
@@ -151,6 +151,7 @@ def _callback(ch, method, properties, body):
 # ── 메인 ─────────────────────────────────────────────────────
 def main():
     global _classify_pipeline
+    settings = get_settings()
 
     log.info("pipeline_loading", queue=CONSUME_QUEUE, path_role="classify-core")
     model     = load_classify_pipeline()
@@ -159,7 +160,7 @@ def main():
 
     while True:
         try:
-            conn = pika.BlockingConnection(pika.URLParameters(RABBITMQ_URL))
+            conn = pika.BlockingConnection(pika.URLParameters(settings.RABBITMQ_URL))
             ch   = conn.channel()
             enable_delivery_confirms(ch)
             ch.basic_qos(prefetch_count=PREFETCH_COUNT)

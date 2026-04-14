@@ -6,7 +6,6 @@
 # ----------
 # 1. RabbitMQ 실행 중 (기본 amqp://guest:guest@localhost:5672/)
 # 2. consumer_classify.py 실행 중
-# 3. consumer_draft.py 실행 중
 #
 # 실행
 # ----
@@ -16,8 +15,7 @@
 # 옵션
 # ----
 #   --timeout 30     응답 대기 최대 초 (기본 30)
-#   --classify-only  classify 만 테스트
-#   --draft-only     draft 만 테스트
+#   classify consumer / publisher 계약만 테스트
 # ============================================================
 
 import sys
@@ -38,11 +36,8 @@ AI2APP_EXCHANGE = "x.ai2app.direct"
 
 CLASSIFY_IN  = "q.2ai.classify"
 CLASSIFY_OUT = "q.2app.classify"
-DRAFT_IN     = "q.2ai.draft"
-DRAFT_OUT    = "q.2app.draft"
 
 CLASSIFY_IN_RK  = "2ai.classify"
-DRAFT_IN_RK     = "2ai.draft"
 
 _PROPS = pika.BasicProperties(
     content_type="application/json",
@@ -141,103 +136,11 @@ def test_classify(ch, timeout: int) -> dict | None:
                   f"source={meta.get('source')}")
     return resp
 
-
-# ── draft E2E ─────────────────────────────────────────────────
-
-def test_draft(ch, timeout: int, classify_resp: dict | None = None):
-    print("\n── draft E2E ─────────────────────────────────────────")
-    req_id = f"e2e-draft-{uuid.uuid4().hex[:8]}"
-    domain = classify_resp["classification"]["domain"] if classify_resp else "업무"
-    intent = classify_resp["classification"]["intent"] if classify_resp else "문의"
-
-    payload = {
-        "request_id": req_id,
-        "mode":       "generate",
-        "emailId":    "test-email-001",
-        "subject":    "납품 일정 문의",
-        "body":       "이번 달 납품 일정을 알려주시겠어요? 빠른 확인 부탁드립니다.",
-        "domain":     domain,
-        "intent":     intent,
-        "summary":    classify_resp["summary"] if classify_resp else "납품 일정 확인 요청",
-    }
-
-    print(f"  Publish  → {DRAFT_IN}  request_id={req_id}  mode=generate")
-    t0 = time.perf_counter()
-    _publish(ch, APP2AI_EXCHANGE, DRAFT_IN_RK, payload)
-
-    resp = _poll(ch, DRAFT_OUT, req_id, timeout)
-    elapsed = (time.perf_counter() - t0) * 1000
-
-    if resp is None:
-        _print_result("draft generate response", False, elapsed,
-                      f"timeout({timeout}s) — consumer 실행 중인지 확인")
-        return
-
-    errors = []
-    for f in ["request_id", "emailId", "draft_reply", "reply_embedding"]:
-        if f not in resp:
-            errors.append(f"missing field: {f}")
-    if resp.get("request_id") != req_id:
-        errors.append(f"request_id mismatch: {resp.get('request_id')}")
-    if resp.get("status") == "error":
-        errors.append(f"error response: {resp.get('error_message')}")
-
-    ok = len(errors) == 0
-    _print_result("draft generate response", ok, elapsed,
-                  " | ".join(errors) if errors else "")
-    if ok:
-        reply_preview = (resp["draft_reply"] or "")[:60].replace("\n", " ")
-        print(f"         reply_preview={reply_preview!r}")
-        meta = resp.get("meta") or {}
-        if meta:
-            print(f"         meta.elapsed_ms={meta.get('elapsed_ms')} "
-                  f"source={meta.get('source')}")
-
-    # regenerate validation 오류 응답 테스트
-    _test_draft_validation_error(ch, domain, intent, timeout)
-
-
-def _test_draft_validation_error(ch, domain: str, intent: str, timeout: int):
-    """mode=regenerate + previous_draft 누락 → ErrorResponse 수신 확인"""
-    req_id = f"e2e-regen-{uuid.uuid4().hex[:8]}"
-    payload = {
-        "request_id": req_id,
-        "mode":       "regenerate",
-        "emailId":    "test-email-001",
-        "subject":    "납품 일정 문의",
-        "body":       "이번 달 납품 일정을 알려주시겠어요?",
-        "domain":     domain,
-        "intent":     intent,
-        "summary":    "납품 일정 확인 요청",
-        # previous_draft 의도적으로 누락
-    }
-
-    print(f"\n  Publish  → {DRAFT_IN}  request_id={req_id}  mode=regenerate (no previous_draft)")
-    t0 = time.perf_counter()
-    _publish(ch, APP2AI_EXCHANGE, DRAFT_IN_RK, payload)
-
-    resp = _poll(ch, DRAFT_OUT, req_id, timeout)
-    elapsed = (time.perf_counter() - t0) * 1000
-
-    if resp is None:
-        _print_result("draft regenerate validation error", False, elapsed,
-                      f"timeout({timeout}s)")
-        return
-
-    ok = (resp.get("status") == "error"
-          and resp.get("error_code") == "VALIDATION_ERROR"
-          and resp.get("request_id") == req_id)
-    detail = f"error_code={resp.get('error_code')}  msg={resp.get('error_message')}"
-    _print_result("draft regenerate validation error", ok, elapsed, detail)
-
-
 # ── 메인 ─────────────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser(description="AI 서버 E2E 테스트")
     parser.add_argument("--timeout",       type=int, default=30)
-    parser.add_argument("--classify-only", action="store_true")
-    parser.add_argument("--draft-only",    action="store_true")
     args = parser.parse_args()
 
     print(f"RabbitMQ: {RABBITMQ_URL}")
@@ -250,12 +153,7 @@ def main():
         sys.exit(1)
 
     try:
-        classify_resp = None
-        if not args.draft_only:
-            classify_resp = test_classify(ch, args.timeout)
-
-        if not args.classify_only:
-            test_draft(ch, args.timeout, classify_resp)
+        test_classify(ch, args.timeout)
 
     finally:
         if not conn.is_closed:

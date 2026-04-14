@@ -14,13 +14,7 @@ class ResponseMeta(BaseModel):
 
 class ErrorResponse(BaseModel):
     """
-    비즈니스 로직 오류 시 q.2app.* 로 publish 되는 에러 응답.
-    request_id / emailId 는 원본 메시지 그대로 보존.
-
-    error_code 목록
-    ---------------
-    VALIDATION_ERROR   : regenerate 시 previous_draft 누락 등 입력 오류
-    PROCESSING_ERROR   : Claude/GPT API 실패 등 일시적 처리 오류
+    비즈니스 로직 오류 시 q.2app.* 로 publish 가능한 공통 에러 응답.
     """
 
     request_id: str

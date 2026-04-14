@@ -1,5 +1,5 @@
 # ============================================================
-# /summarize 엔드포인트 - GPT 요약 + 일정 추출 (보조 엔드포인트)
+# /summarize 엔드포인트 - LLM 요약 + 일정 추출 (보조 엔드포인트)
 # ============================================================
 
 import sys
@@ -8,9 +8,8 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import Optional
 from api.schemas import SummarizeResponse
-from api.services.gpt_service import summarize_email
+from api.services.summarize_service import summarize_email
 
 router = APIRouter()
 

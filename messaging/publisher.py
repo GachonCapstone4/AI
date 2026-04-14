@@ -6,12 +6,11 @@
 # ============================================================
 
 import json
-import os
 import pika
 
 from messaging.structured_log import get_logger
+from src.settings import get_settings
 
-RABBITMQ_URL    = os.getenv("RABBITMQ_URL", "amqp://admin:admin1234!@192.168.2.20:30672/")
 AI2APP_EXCHANGE = "x.ai2app.direct"
 
 _PROPS = pika.BasicProperties(
@@ -55,8 +54,8 @@ def publish(channel: pika.channel.Channel, routing_key: str, message: dict) -> N
 class StandalonePublisher:
     """독립 연결이 필요한 경우 (E2E 테스트, 배치) 사용하는 컨텍스트 매니저."""
 
-    def __init__(self, url: str = RABBITMQ_URL):
-        self._url  = url
+    def __init__(self, url: str | None = None):
+        self._url  = url or get_settings().RABBITMQ_URL
         self._conn = None
         self._ch   = None
 
