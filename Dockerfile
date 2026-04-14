@@ -28,7 +28,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PYTHONPATH=/app:/app/src \
     MODEL_SOURCE=s3 \
-    MODEL_LOCAL_CACHE_DIR=/tmp/model-cache
+    MODEL_LOCAL_CACHE_DIR=/app/.cache/model-cache
 
 WORKDIR /app
 
@@ -38,7 +38,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 COPY api/ ./api/
 COPY src/ ./src/
 COPY messaging/ ./messaging/
-COPY models/ ./models/
+RUN mkdir -p /app/.cache/model-cache
 
 EXPOSE 8000
 
