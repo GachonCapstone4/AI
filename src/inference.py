@@ -1,11 +1,17 @@
 import numpy as np
 
 from config import CONFIDENCE_THRESHOLD
-from model_loader import load_classification_pipeline
+from model_loader import load_classification_pipeline, resolve_runtime_model_paths
 
 
 def load_classify_pipeline() -> dict:
+    paths = resolve_runtime_model_paths()
+    print(f"[load_classify_pipeline] resolved_sbert_dir={paths.sbert_dir}")
     return load_classification_pipeline()
+
+
+def load_pipeline() -> dict:
+    return load_classify_pipeline()
 
 
 def predict_email(

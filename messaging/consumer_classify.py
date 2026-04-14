@@ -17,6 +17,7 @@ import sys
 import os
 import json
 import time
+import threading
 
 import pika
 from pydantic import ValidationError
@@ -41,6 +42,101 @@ PREFETCH_COUNT       = 1
 log = get_logger("consumer.classify")
 
 _classify_pipeline: dict = {}
+
+
+class ClassifyConsumerRunner:
+    def __init__(self, pipeline: dict) -> None:
+        self._pipeline = pipeline
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._connection = None
+        self._channel = None
+
+    def start(self) -> None:
+        if self._thread and self._thread.is_alive():
+            return
+
+        self._thread = threading.Thread(
+            target=self._run,
+            name="rabbitmq-classify-consumer",
+            daemon=True,
+        )
+        self._thread.start()
+
+    def stop(self, timeout: float = 10.0) -> None:
+        self._stop_event.set()
+
+        if self._channel and getattr(self._channel, "is_open", False):
+            try:
+                self._connection.add_callback_threadsafe(self._channel.stop_consuming)
+            except Exception:
+                pass
+
+        if self._connection and getattr(self._connection, "is_open", False):
+            try:
+                self._connection.add_callback_threadsafe(self._connection.close)
+            except Exception:
+                pass
+
+        if self._thread:
+            self._thread.join(timeout=timeout)
+
+    def _run(self) -> None:
+        global _classify_pipeline
+        _classify_pipeline = self._pipeline
+
+        settings = get_settings()
+        log.info("consumer_starting", queue=CONSUME_QUEUE)
+
+        while not self._stop_event.is_set():
+            try:
+                conn = pika.BlockingConnection(pika.URLParameters(settings.RABBITMQ_URL))
+                ch = conn.channel()
+
+                self._connection = conn
+                self._channel = ch
+
+                enable_delivery_confirms(ch)
+                ch.basic_qos(prefetch_count=PREFETCH_COUNT)
+                ch.basic_consume(queue=CONSUME_QUEUE, on_message_callback=_callback)
+                log.info(
+                    "consuming",
+                    queue=CONSUME_QUEUE,
+                    source_exchange="x.app2ai.direct",
+                    source_routing_key="2ai.classify",
+                )
+                ch.start_consuming()
+            except pika.exceptions.AMQPConnectionError as e:
+                if self._stop_event.is_set():
+                    break
+                log.warning(
+                    "connection_lost",
+                    queue=CONSUME_QUEUE,
+                    error=str(e),
+                    retry_in_sec=5,
+                )
+                time.sleep(5)
+            except Exception as e:
+                if self._stop_event.is_set():
+                    break
+                log.error(
+                    "consumer_crashed",
+                    queue=CONSUME_QUEUE,
+                    exception_type=type(e).__name__,
+                    error=str(e),
+                    retry_in_sec=5,
+                )
+                time.sleep(5)
+            finally:
+                self._channel = None
+                if self._connection and getattr(self._connection, "is_open", False):
+                    try:
+                        self._connection.close()
+                    except Exception:
+                        pass
+                self._connection = None
+
+        log.info("consumer_stopped", queue=CONSUME_QUEUE)
 
 
 def _safe_ack(ch, delivery_tag, outbox_id, email_id) -> None:
@@ -151,33 +247,20 @@ def _callback(ch, method, properties, body):
 # ── 메인 ─────────────────────────────────────────────────────
 def main():
     global _classify_pipeline
-    settings = get_settings()
-
     log.info("pipeline_loading", queue=CONSUME_QUEUE, path_role="classify-core")
-    model     = load_classify_pipeline()
+    model = load_classify_pipeline()
     _classify_pipeline = {"model": model, "predict": predict_email}
-    log.info("pipeline_ready",   queue=CONSUME_QUEUE, path_role="classify-core")
+    log.info("pipeline_ready", queue=CONSUME_QUEUE, path_role="classify-core")
 
-    while True:
-        try:
-            conn = pika.BlockingConnection(pika.URLParameters(settings.RABBITMQ_URL))
-            ch   = conn.channel()
-            enable_delivery_confirms(ch)
-            ch.basic_qos(prefetch_count=PREFETCH_COUNT)
-            ch.basic_consume(queue=CONSUME_QUEUE, on_message_callback=_callback)
-            log.info("consuming",
-                     queue=CONSUME_QUEUE,
-                     source_exchange="x.app2ai.direct",
-                     source_routing_key="2ai.classify")
-            ch.start_consuming()
+    runner = ClassifyConsumerRunner(_classify_pipeline)
+    runner.start()
 
-        except pika.exceptions.AMQPConnectionError as e:
-            log.warning("connection_lost", queue=CONSUME_QUEUE, error=str(e),
-                        retry_in_sec=5)
-            time.sleep(5)
-        except KeyboardInterrupt:
-            log.info("shutdown", queue=CONSUME_QUEUE)
-            break
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        log.info("shutdown", queue=CONSUME_QUEUE)
+        runner.stop()
 
 
 if __name__ == "__main__":

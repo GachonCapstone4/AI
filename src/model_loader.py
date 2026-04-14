@@ -7,13 +7,6 @@ from pathlib import Path
 import joblib
 from sentence_transformers import SentenceTransformer
 
-from config import (
-    DOMAIN_CLF_PATH,
-    DOMAIN_LE_PATH,
-    INTENT_CLF_PATH,
-    INTENT_LE_PATH,
-    SBERT_MODEL_PATH,
-)
 from settings import get_settings
 
 
@@ -113,6 +106,14 @@ def _validate_required_local_paths(paths: RuntimeModelPaths) -> None:
 
 
 def _resolve_local_model_paths() -> RuntimeModelPaths:
+    from config import (
+        DOMAIN_CLF_PATH,
+        DOMAIN_LE_PATH,
+        INTENT_CLF_PATH,
+        INTENT_LE_PATH,
+        SBERT_MODEL_PATH,
+    )
+
     paths = RuntimeModelPaths(
         sbert_dir=Path(SBERT_MODEL_PATH),
         sbert_model_path=Path(SBERT_MODEL_PATH) / "model.safetensors",
@@ -126,25 +127,31 @@ def _resolve_local_model_paths() -> RuntimeModelPaths:
     return paths
 
 
+def _build_s3_runtime_paths() -> RuntimeModelPaths:
+    settings = get_settings()
+    base = Path(settings.MODEL_LOCAL_CACHE_DIR) / settings.ACTIVE_MODEL_VERSION
+
+    return RuntimeModelPaths(
+        sbert_dir=base / "sbert",
+        sbert_model_path=base / "sbert" / "model.safetensors",
+        sbert_tokenizer_path=base / "sbert" / "tokenizer.json",
+        domain_clf_path=base / "domain_classifier.pkl",
+        domain_le_path=base / "domain_label_encoder.pkl",
+        intent_clf_path=base / "intent_classifiers.pkl",
+        intent_le_path=base / "intent_label_encoders.pkl",
+        label_mapping_path=base / "label_mapping.json",
+        metadata_path=base / "metadata.json",
+    )
+
+
 def _resolve_s3_model_paths() -> RuntimeModelPaths:
     settings = get_settings()
     cache = S3ArtifactCache(region_name=settings.AWS_REGION)
 
-    cache_root = Path(settings.MODEL_LOCAL_CACHE_DIR) / (settings.ACTIVE_MODEL_VERSION or "")
+    paths = _build_s3_runtime_paths()
+    cache_root = paths.domain_clf_path.parent
     base_prefix = f"{settings.S3_MODEL_PREFIX.rstrip('/')}/{settings.ACTIVE_MODEL_VERSION}"
     sbert_prefix = f"{base_prefix}/sbert/"
-
-    paths = RuntimeModelPaths(
-        sbert_dir=cache_root / "sbert",
-        sbert_model_path=cache_root / "sbert" / "model.safetensors",
-        sbert_tokenizer_path=cache_root / "sbert" / "tokenizer.json",
-        domain_clf_path=cache_root / "domain_classifier.pkl",
-        domain_le_path=cache_root / "domain_label_encoder.pkl",
-        intent_clf_path=cache_root / "intent_classifiers.pkl",
-        intent_le_path=cache_root / "intent_label_encoders.pkl",
-        label_mapping_path=cache_root / "label_mapping.json",
-        metadata_path=cache_root / "metadata.json",
-    )
 
     if not all((paths.sbert_dir / filename).exists() for filename in REQUIRED_SBERT_FILES):
         cache.download_prefix(
@@ -183,12 +190,18 @@ def _resolve_s3_model_paths() -> RuntimeModelPaths:
 def resolve_runtime_model_paths() -> RuntimeModelPaths:
     settings = get_settings()
     if settings.MODEL_SOURCE == "s3":
+        print(
+            "[resolve_runtime_model_paths] source=s3 "
+            f"base={Path(settings.MODEL_LOCAL_CACHE_DIR) / settings.ACTIVE_MODEL_VERSION}"
+        )
         return _resolve_s3_model_paths()
+    print("[resolve_runtime_model_paths] source=local")
     return _resolve_local_model_paths()
 
 
 def load_classification_pipeline() -> dict:
     paths = resolve_runtime_model_paths()
+    print(f"[load_classification_pipeline] sbert_dir={paths.sbert_dir}")
 
     pipeline = {
         "sbert": SentenceTransformer(str(paths.sbert_dir)),

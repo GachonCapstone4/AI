@@ -1,6 +1,7 @@
 import os
 import sys
 from contextlib import asynccontextmanager
+import asyncio
 
 from fastapi import FastAPI
 
@@ -9,6 +10,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from inference import load_classify_pipeline, predict_email
 from api.routers import classify, summarize
+from messaging.consumer_classify import ClassifyConsumerRunner
 from src.settings import validate_startup_settings
 
 
@@ -29,8 +31,18 @@ async def lifespan(app: FastAPI):
     }
     print("[Startup] classify pipeline ready")
 
+    print("[Startup] classify consumer starting...")
+    consumer_runner = ClassifyConsumerRunner(app.state.classify_pipeline)
+    consumer_runner.start()
+    app.state.classify_consumer_runner = consumer_runner
+    await asyncio.sleep(0)
+    print("[Startup] classify consumer started")
+
     yield
 
+    print("[Shutdown] classify consumer stopping...")
+    consumer_runner.stop()
+    print("[Shutdown] classify consumer stopped")
     print("[Shutdown] server stopped")
 
 
