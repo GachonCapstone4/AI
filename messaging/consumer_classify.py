@@ -6,11 +6,10 @@
 #
 # ack / nack 정책
 # ---------------
-# 성공              → ack
-# JSON 파싱 실패    → nack(requeue=False)   손상 메시지 → DLQ
-# Pydantic 검증 실패→ nack(requeue=False)   스키마 불일치 → DLQ
-# 일시적 오류       → nack(requeue=True)    재시도 가능
-#                    ※ 무한 루프 방지: DLQ + x-death 카운팅 권장
+# 성공                → ack
+# JSON/Pydantic 실패  → q.dlx.failed publish 후 ack
+# 처리 실패           → x-death count < 3 이면 nack(requeue=False) 로 retry queue 이동
+# 처리 실패           → x-death count >= 3 또는 영구 실패면 q.dlx.failed publish 후 ack
 # ============================================================
 
 import sys
@@ -37,7 +36,9 @@ from src.settings import get_settings
 CONSUME_QUEUE        = "q.2ai.classify"
 PUBLISH_QUEUE        = "q.2app.classify"
 PUBLISH_ROUTING_KEY  = "2app.classify"
+FAILED_QUEUE         = "q.dlx.failed"
 PREFETCH_COUNT       = 1
+MAX_RETRY_COUNT      = 3
 
 log = get_logger("consumer.classify")
 
@@ -178,6 +179,64 @@ def _safe_nack(ch, delivery_tag, outbox_id, email_id, requeue: bool) -> None:
     )
 
 
+def _get_retry_count(properties) -> int:
+    headers = getattr(properties, "headers", None) or {}
+    x_death = headers.get("x-death", [])
+
+    if not isinstance(x_death, list):
+        return 0
+
+    for death in x_death:
+        if isinstance(death, dict) and death.get("queue") == CONSUME_QUEUE:
+            count = death.get("count", 0)
+            try:
+                return int(count)
+            except (TypeError, ValueError):
+                return 0
+    return 0
+
+
+def _publish_failed_message(
+    ch,
+    *,
+    outbox_id: str,
+    email_id: str,
+    body: bytes,
+    error: str,
+    retry_count: int,
+    exception_type: str,
+) -> None:
+    failed_message = {
+        "source_queue": CONSUME_QUEUE,
+        "outbox_id": outbox_id,
+        "email_id": email_id,
+        "retry_count": retry_count,
+        "exception_type": exception_type,
+        "error": error,
+        "body": body.decode("utf-8", errors="replace"),
+    }
+
+    ch.basic_publish(
+        exchange="",
+        routing_key=FAILED_QUEUE,
+        body=json.dumps(failed_message, ensure_ascii=False).encode("utf-8"),
+        properties=pika.BasicProperties(
+            content_type="application/json",
+            delivery_mode=2,
+        ),
+    )
+    log.error(
+        "failed_message_published",
+        queue=CONSUME_QUEUE,
+        failed_queue=FAILED_QUEUE,
+        outbox_id=outbox_id,
+        email_id=email_id,
+        retry_count=retry_count,
+        exception_type=exception_type,
+        error=error,
+    )
+
+
 def _is_permanent_processing_error(exc: Exception) -> bool:
     message = str(exc).lower()
     return any(marker in message for marker in PERMANENT_ERROR_MARKERS)
@@ -196,6 +255,7 @@ def _callback(ch, method, properties, body):
     outbox_id = "(unknown)"
     email_id  = "(unknown)"
     t0 = time.perf_counter()
+    retry_count = _get_retry_count(properties)
 
     try:
         log.info(
@@ -205,6 +265,7 @@ def _callback(ch, method, properties, body):
             routing_key=method.routing_key,
             exchange=method.exchange,
             redelivered=method.redelivered,
+            retry_count=retry_count,
             content_type=getattr(properties, "content_type", None),
             body_size=len(body),
         )
@@ -261,24 +322,58 @@ def _callback(ch, method, properties, body):
         elapsed_ms = round((time.perf_counter() - t0) * 1000, 2)
         log.error("json_parse_failed",
                   queue=CONSUME_QUEUE, outbox_id=outbox_id, email_id=email_id,
-                  success=False, elapsed_ms=elapsed_ms, error=str(e))
-        _safe_nack(ch, method.delivery_tag, outbox_id, email_id, requeue=False)
+                  success=False, elapsed_ms=elapsed_ms, error=str(e), retry_count=retry_count)
+        _publish_failed_message(
+            ch,
+            outbox_id=outbox_id,
+            email_id=email_id,
+            body=body,
+            error=str(e),
+            retry_count=retry_count,
+            exception_type=type(e).__name__,
+        )
+        _safe_ack(ch, method.delivery_tag, outbox_id, email_id)
 
     except ValidationError as e:
         elapsed_ms = round((time.perf_counter() - t0) * 1000, 2)
         log.error("schema_validation_failed",
                   queue=CONSUME_QUEUE, outbox_id=outbox_id, email_id=email_id,
-                  success=False, elapsed_ms=elapsed_ms, error=str(e))
-        _safe_nack(ch, method.delivery_tag, outbox_id, email_id, requeue=False)
+                  success=False, elapsed_ms=elapsed_ms, error=str(e), retry_count=retry_count)
+        _publish_failed_message(
+            ch,
+            outbox_id=outbox_id,
+            email_id=email_id,
+            body=body,
+            error=str(e),
+            retry_count=retry_count,
+            exception_type=type(e).__name__,
+        )
+        _safe_ack(ch, method.delivery_tag, outbox_id, email_id)
 
     except Exception as e:
         elapsed_ms = round((time.perf_counter() - t0) * 1000, 2)
-        requeue = _is_transient_processing_error(e) and not _is_permanent_processing_error(e)
+        is_permanent = _is_permanent_processing_error(e)
+        should_retry = (not is_permanent) and retry_count < MAX_RETRY_COUNT
         log.error("processing_failed",
                   queue=CONSUME_QUEUE, outbox_id=outbox_id, email_id=email_id,
                   success=False, elapsed_ms=elapsed_ms,
-                  exception_type=type(e).__name__, error=str(e), requeue=requeue)
-        _safe_nack(ch, method.delivery_tag, outbox_id, email_id, requeue=requeue)
+                  exception_type=type(e).__name__, error=str(e),
+                  retry_count=retry_count, should_retry=should_retry)
+
+        if should_retry:
+            _safe_nack(ch, method.delivery_tag, outbox_id, email_id, requeue=False)
+            return
+
+        _publish_failed_message(
+            ch,
+            outbox_id=outbox_id,
+            email_id=email_id,
+            body=body,
+            error=str(e),
+            retry_count=retry_count,
+            exception_type=type(e).__name__,
+        )
+        _safe_ack(ch, method.delivery_tag, outbox_id, email_id)
 
 
 # ── 메인 ─────────────────────────────────────────────────────
