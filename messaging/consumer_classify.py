@@ -43,6 +43,29 @@ log = get_logger("consumer.classify")
 
 _classify_pipeline: dict = {}
 
+PERMANENT_ERROR_MARKERS = (
+    "400",
+    "401",
+    "403",
+    "invalid api key",
+    "authentication",
+    "unauthorized",
+    "forbidden",
+    "bad request",
+)
+TRANSIENT_ERROR_MARKERS = (
+    "timeout",
+    "timed out",
+    "connection reset",
+    "connection aborted",
+    "connection refused",
+    "temporarily unavailable",
+    "service unavailable",
+    "server disconnected",
+    "remote end closed connection",
+    "network is unreachable",
+)
+
 
 class ClassifyConsumerRunner:
     def __init__(self, pipeline: dict) -> None:
@@ -155,6 +178,19 @@ def _safe_nack(ch, delivery_tag, outbox_id, email_id, requeue: bool) -> None:
     )
 
 
+def _is_permanent_processing_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return any(marker in message for marker in PERMANENT_ERROR_MARKERS)
+
+
+def _is_transient_processing_error(exc: Exception) -> bool:
+    if isinstance(exc, (pika.exceptions.AMQPConnectionError, TimeoutError)):
+        return True
+
+    message = str(exc).lower()
+    return any(marker in message for marker in TRANSIENT_ERROR_MARKERS)
+
+
 # ── 콜백 ─────────────────────────────────────────────────────
 def _callback(ch, method, properties, body):
     outbox_id = "(unknown)"
@@ -237,11 +273,12 @@ def _callback(ch, method, properties, body):
 
     except Exception as e:
         elapsed_ms = round((time.perf_counter() - t0) * 1000, 2)
+        requeue = _is_transient_processing_error(e) and not _is_permanent_processing_error(e)
         log.error("processing_failed",
                   queue=CONSUME_QUEUE, outbox_id=outbox_id, email_id=email_id,
                   success=False, elapsed_ms=elapsed_ms,
-                  exception_type=type(e).__name__, error=str(e))
-        _safe_nack(ch, method.delivery_tag, outbox_id, email_id, requeue=True)
+                  exception_type=type(e).__name__, error=str(e), requeue=requeue)
+        _safe_nack(ch, method.delivery_tag, outbox_id, email_id, requeue=requeue)
 
 
 # ── 메인 ─────────────────────────────────────────────────────
