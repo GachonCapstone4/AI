@@ -8,6 +8,17 @@ from dotenv import load_dotenv
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 
+def _read_env_str(name: str, default: str | None = None) -> str | None:
+    value = os.getenv(name, default)
+    if value is None:
+        return None
+
+    cleaned = value.strip()
+    if len(cleaned) >= 2 and cleaned[0] == cleaned[-1] and cleaned[0] in {"'", '"'}:
+        cleaned = cleaned[1:-1].strip()
+    return cleaned
+
+
 class LLMResolvedConfig(BaseModel):
     provider: Literal["school", "openai"]
     model: str
@@ -88,29 +99,29 @@ class Settings(BaseModel):
         load_dotenv()
 
         values: dict[str, Any] = {
-            "APP_ENV": os.getenv("APP_ENV", "dev"),
-            "LOG_LEVEL": os.getenv("LOG_LEVEL", "INFO"),
-            "API_HOST": os.getenv("API_HOST", "0.0.0.0"),
-            "API_PORT": os.getenv("API_PORT", "8000"),
-            "RABBITMQ_URL": os.getenv("RABBITMQ_URL"),
-            "AWS_REGION": os.getenv("AWS_REGION", "ap-northeast-2"),
-            "S3_DATASET_BUCKET": os.getenv("S3_DATASET_BUCKET"),
-            "S3_DATASET_PREFIX": os.getenv("S3_DATASET_PREFIX", "datasets"),
-            "S3_MODEL_BUCKET": os.getenv("S3_MODEL_BUCKET"),
-            "S3_MODEL_PREFIX": os.getenv("S3_MODEL_PREFIX", "models"),
-            "MODEL_SOURCE": os.getenv("MODEL_SOURCE", "local"),
-            "ACTIVE_MODEL_VERSION": os.getenv("ACTIVE_MODEL_VERSION"),
-            "MODEL_LOCAL_CACHE_DIR": os.getenv("MODEL_LOCAL_CACHE_DIR", ".cache/model-cache"),
-            "LLM_PROVIDER": os.getenv("LLM_PROVIDER", "school"),
-            "LLM_MAX_INPUT_CHARS": os.getenv("LLM_MAX_INPUT_CHARS", "12000"),
-            "LLM_MAX_OUTPUT_TOKENS": os.getenv("LLM_MAX_OUTPUT_TOKENS", "800"),
-            "SCHOOL_LLM_BASE_URL": os.getenv("SCHOOL_LLM_BASE_URL", "http://cellm.gachon.ac.kr:8000/v1"),
-            "SCHOOL_LLM_API_KEY": os.getenv("SCHOOL_LLM_API_KEY"),
-            "SCHOOL_LLM_MODEL": os.getenv("SCHOOL_LLM_MODEL"),
-            "OPENAI_API_KEY": os.getenv("OPENAI_API_KEY"),
-            "OPENAI_MODEL": os.getenv("OPENAI_MODEL"),
-            "OPENAI_BASE_URL": os.getenv("OPENAI_BASE_URL"),
-            "TRAINING_SAFE_MODE": os.getenv("TRAINING_SAFE_MODE", "true"),
+            "APP_ENV": _read_env_str("APP_ENV", "dev"),
+            "LOG_LEVEL": _read_env_str("LOG_LEVEL", "INFO"),
+            "API_HOST": _read_env_str("API_HOST", "0.0.0.0"),
+            "API_PORT": _read_env_str("API_PORT", "8000"),
+            "RABBITMQ_URL": _read_env_str("RABBITMQ_URL"),
+            "AWS_REGION": _read_env_str("AWS_REGION", "ap-northeast-2"),
+            "S3_DATASET_BUCKET": _read_env_str("S3_DATASET_BUCKET"),
+            "S3_DATASET_PREFIX": _read_env_str("S3_DATASET_PREFIX", "datasets"),
+            "S3_MODEL_BUCKET": _read_env_str("S3_MODEL_BUCKET"),
+            "S3_MODEL_PREFIX": _read_env_str("S3_MODEL_PREFIX", "models"),
+            "MODEL_SOURCE": _read_env_str("MODEL_SOURCE", "local"),
+            "ACTIVE_MODEL_VERSION": _read_env_str("ACTIVE_MODEL_VERSION"),
+            "MODEL_LOCAL_CACHE_DIR": _read_env_str("MODEL_LOCAL_CACHE_DIR", ".cache/model-cache"),
+            "LLM_PROVIDER": _read_env_str("LLM_PROVIDER", "school"),
+            "LLM_MAX_INPUT_CHARS": _read_env_str("LLM_MAX_INPUT_CHARS", "12000"),
+            "LLM_MAX_OUTPUT_TOKENS": _read_env_str("LLM_MAX_OUTPUT_TOKENS", "800"),
+            "SCHOOL_LLM_BASE_URL": _read_env_str("SCHOOL_LLM_BASE_URL", "http://cellm.gachon.ac.kr:8000/v1"),
+            "SCHOOL_LLM_API_KEY": _read_env_str("SCHOOL_LLM_API_KEY"),
+            "SCHOOL_LLM_MODEL": _read_env_str("SCHOOL_LLM_MODEL"),
+            "OPENAI_API_KEY": _read_env_str("OPENAI_API_KEY"),
+            "OPENAI_MODEL": _read_env_str("OPENAI_MODEL"),
+            "OPENAI_BASE_URL": _read_env_str("OPENAI_BASE_URL"),
+            "TRAINING_SAFE_MODE": _read_env_str("TRAINING_SAFE_MODE", "true"),
         }
         return cls(**values)
 

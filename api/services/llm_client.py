@@ -16,6 +16,14 @@ class LLMPermanentError(RuntimeError):
     pass
 
 
+def _mask_secret(value: str) -> str:
+    if not value:
+        return "(empty)"
+    if len(value) <= 8:
+        return f"{value[:2]}***"
+    return f"{value[:4]}...{value[-4:]}"
+
+
 class OpenAICompatibleLLMClient:
     def __init__(
         self,
@@ -31,9 +39,9 @@ class OpenAICompatibleLLMClient:
         if normalized_base_url and not normalized_base_url.endswith("/v1"):
             normalized_base_url = f"{normalized_base_url}/v1"
 
-        self._api_key = api_key
+        self._api_key = api_key.strip().strip("'\"")
         self._base_url = normalized_base_url
-        client_kwargs = {"api_key": api_key}
+        client_kwargs = {"api_key": self._api_key}
         if normalized_base_url:
             client_kwargs["base_url"] = normalized_base_url
 
@@ -117,7 +125,10 @@ class OpenAICompatibleLLMClient:
 
         if response.status_code in {400, 401, 403}:
             raise LLMPermanentError(
-                f"LLM request rejected permanently: {response.status_code} {response.text}"
+                "LLM request rejected permanently: "
+                f"{response.status_code} {response.text} "
+                f"(provider={self._provider}, base_url={self._base_url}, "
+                f"model={self._model}, api_key={_mask_secret(self._api_key)})"
             )
         if response.status_code >= 500:
             raise LLMTransientError(
