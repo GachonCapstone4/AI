@@ -3,7 +3,7 @@
 # FastAPI + ML 모델 서버
 # ============================================================
 
-FROM python:3.11-slim-bookworm
+FROM --platform=linux/arm64 python:3.11-slim-bookworm
 
 # 작업 디렉토리 설정
 WORKDIR /app
