@@ -68,6 +68,30 @@ TRANSIENT_ERROR_MARKERS = (
 )
 
 
+def _build_backend_classify_payload(result) -> dict:
+    schedule_info = result.schedule_info
+    schedule_detected = schedule_info is not None
+    entities_json = (
+        json.dumps(schedule_info, ensure_ascii=False)
+        if schedule_detected
+        else "{}"
+    )
+    model_version = getattr(result.meta, "model_version", None) or "unknown"
+
+    return {
+        "outbox_id": result.outbox_id,
+        "email_id": result.email_id,
+        "domain": result.classification.domain,
+        "intent": result.classification.intent,
+        "confidence_score": 0.0,
+        "summary_text": result.summary,
+        "schedule_detected": schedule_detected,
+        "email_embedding": result.email_embedding,
+        "entities_json": entities_json,
+        "model_version": model_version,
+    }
+
+
 class ClassifyConsumerRunner:
     def __init__(self, pipeline: dict) -> None:
         self._pipeline = pipeline
@@ -294,7 +318,7 @@ def _callback(ch, method, properties, body):
                  outbox_id=payload.outbox_id,
                  email_id=payload.email_id)
         try:
-            publish(ch, PUBLISH_ROUTING_KEY, result.model_dump())
+            publish(ch, PUBLISH_ROUTING_KEY, _build_backend_classify_payload(result))
             log.info("publish_succeeded",
                      queue=CONSUME_QUEUE,
                      target_exchange=AI2APP_EXCHANGE,

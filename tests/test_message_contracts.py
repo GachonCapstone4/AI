@@ -19,6 +19,7 @@ from api.schemas import (
     Classification,
     ResponseMeta,
 )
+from messaging.consumer_classify import _build_backend_classify_payload
 
 
 # ── 픽스처: 표준 입력 메시지 ─────────────────────────────────
@@ -162,3 +163,46 @@ class TestResponseMeta:
         dumped = json.dumps(resp.model_dump())
         parsed = json.loads(dumped)
         assert parsed["meta"]["elapsed_ms"] == 77.0
+
+
+class TestBackendClassifyPublishPayload:
+    def test_builds_flat_backend_contract_with_defaults(self):
+        result = ClassifyResponse(
+            outbox_id=1,
+            email_id=2,
+            classification=Classification(domain="업무", intent="문의"),
+            summary="납품 일정 확인 요청 이메일입니다.",
+            schedule_info={"date": "2026-04-10", "time": "14:00"},
+            email_embedding=[0.1, 0.2, 0.3],
+            meta=ResponseMeta(elapsed_ms=12.3, source="consumer.classify"),
+        )
+
+        payload = _build_backend_classify_payload(result)
+
+        assert payload == {
+            "outbox_id": 1,
+            "email_id": 2,
+            "domain": "업무",
+            "intent": "문의",
+            "confidence_score": 0.0,
+            "summary_text": "납품 일정 확인 요청 이메일입니다.",
+            "schedule_detected": True,
+            "email_embedding": [0.1, 0.2, 0.3],
+            "entities_json": '{"date": "2026-04-10", "time": "14:00"}',
+            "model_version": "unknown",
+        }
+
+    def test_builds_empty_schedule_defaults(self):
+        result = ClassifyResponse(
+            outbox_id=1,
+            email_id=2,
+            classification=Classification(domain="업무", intent="문의"),
+            summary="요약",
+            schedule_info=None,
+            email_embedding=[0.1],
+        )
+
+        payload = _build_backend_classify_payload(result)
+
+        assert payload["schedule_detected"] is False
+        assert payload["entities_json"] == "{}"
