@@ -422,7 +422,18 @@ def main():
     log.info("pipeline_loading", queue=CONSUME_QUEUE, path_role="classify-core")
     model = load_classify_pipeline()
     _classify_pipeline = {"model": model, "predict": predict_email}
-    log.info("pipeline_ready", queue=CONSUME_QUEUE, path_role="classify-core")
+    runtime = model.get("runtime") or {}
+    log.info(
+        "pipeline_ready",
+        queue=CONSUME_QUEUE,
+        path_role="classify-core",
+        model_source=runtime.get("model_source"),
+        active_model_version=runtime.get("active_model_version"),
+        metadata_model_version=runtime.get("metadata_model_version"),
+        loaded_sbert_path=runtime.get("loaded_sbert_path"),
+        loaded_domain_model_path=runtime.get("loaded_domain_model_path"),
+        loaded_intent_model_path=runtime.get("loaded_intent_model_path"),
+    )
 
     runner = ClassifyConsumerRunner(_classify_pipeline)
     runner.start()

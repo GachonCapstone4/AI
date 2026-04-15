@@ -8,6 +8,7 @@ import joblib
 from sentence_transformers import SentenceTransformer
 
 from settings import get_settings
+from messaging.structured_log import get_logger
 
 
 OPTIONAL_ARTIFACTS = ("label_mapping.json", "metadata.json")
@@ -21,6 +22,8 @@ REQUIRED_SBERT_FILES = (
     "model.safetensors",
     "tokenizer.json",
 )
+
+log = get_logger("model_loader")
 
 
 @dataclass(frozen=True)
@@ -190,18 +193,21 @@ def _resolve_s3_model_paths() -> RuntimeModelPaths:
 def resolve_runtime_model_paths() -> RuntimeModelPaths:
     settings = get_settings()
     if settings.MODEL_SOURCE == "s3":
-        print(
-            "[resolve_runtime_model_paths] source=s3 "
-            f"base={Path(settings.MODEL_LOCAL_CACHE_DIR) / settings.ACTIVE_MODEL_VERSION}"
+        base_path = Path(settings.MODEL_LOCAL_CACHE_DIR) / (settings.ACTIVE_MODEL_VERSION or "unknown")
+        log.info(
+            "runtime_model_paths_resolved",
+            model_source="s3",
+            active_model_version=settings.ACTIVE_MODEL_VERSION,
+            model_cache_base=str(base_path),
         )
         return _resolve_s3_model_paths()
-    print("[resolve_runtime_model_paths] source=local")
+    log.info("runtime_model_paths_resolved", model_source="local")
     return _resolve_local_model_paths()
 
 
 def load_classification_pipeline() -> dict:
+    settings = get_settings()
     paths = resolve_runtime_model_paths()
-    print(f"[load_classification_pipeline] sbert_dir={paths.sbert_dir}")
 
     pipeline = {
         "sbert": SentenceTransformer(str(paths.sbert_dir)),
@@ -216,5 +222,28 @@ def load_classification_pipeline() -> dict:
     if paths.label_mapping_path and paths.label_mapping_path.exists():
         pipeline["label_mapping"] = json.loads(paths.label_mapping_path.read_text(encoding="utf-8"))
 
-    print("[load_classification_pipeline] runtime model pipeline loaded")
+    metadata = pipeline.get("metadata") or {}
+    runtime = {
+        "model_source": settings.MODEL_SOURCE,
+        "active_model_version": settings.ACTIVE_MODEL_VERSION,
+        "loaded_sbert_path": str(paths.sbert_dir),
+        "loaded_domain_model_path": str(paths.domain_clf_path),
+        "loaded_domain_label_encoder_path": str(paths.domain_le_path),
+        "loaded_intent_model_path": str(paths.intent_clf_path),
+        "loaded_intent_label_encoder_path": str(paths.intent_le_path),
+        "loaded_metadata_path": str(paths.metadata_path) if paths.metadata_path else None,
+        "loaded_label_mapping_path": str(paths.label_mapping_path) if paths.label_mapping_path else None,
+        "metadata_model_version": metadata.get("model_version") or metadata.get("modelVersion"),
+    }
+    pipeline["runtime"] = runtime
+
+    log.info(
+        "classification_pipeline_loaded",
+        model_source=runtime["model_source"],
+        active_model_version=runtime["active_model_version"],
+        metadata_model_version=runtime["metadata_model_version"],
+        loaded_sbert_path=runtime["loaded_sbert_path"],
+        loaded_domain_model_path=runtime["loaded_domain_model_path"],
+        loaded_intent_model_path=runtime["loaded_intent_model_path"],
+    )
     return pipeline

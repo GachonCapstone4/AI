@@ -5,8 +5,10 @@
 
 from api.schemas import ClassifyRequest, ClassifyResponse, Classification
 from api.services.summarize_service import summarize_email
+from messaging.structured_log import get_logger
 
 MIN_SUMMARY_LENGTH = 10
+log = get_logger("service.classify")
 
 
 def _preprocess(subject: str, body: str) -> str:
@@ -33,6 +35,26 @@ def run_classify(payload: ClassifyRequest, pipeline: dict) -> ClassifyResponse:
     result = pipeline["predict"](
         email_text=email_text,
         pipeline=pipeline["model"],
+    )
+    runtime = pipeline["model"].get("runtime") or {}
+    log.info(
+        "classification_result",
+        outbox_id=payload.outbox_id,
+        email_id=payload.email_id,
+        loaded_sbert_path=runtime.get("loaded_sbert_path"),
+        loaded_domain_model_path=runtime.get("loaded_domain_model_path"),
+        loaded_intent_model_path=runtime.get("loaded_intent_model_path"),
+        model_source=runtime.get("model_source"),
+        active_model_version=runtime.get("active_model_version"),
+        metadata_model_version=runtime.get("metadata_model_version"),
+        domain_pred=result.get("domain"),
+        domain_confidence=result.get("domain_confidence"),
+        intent_pred=result.get("intent"),
+        intent_confidence=result.get("intent_confidence"),
+        final_confidence=result.get("confidence_score"),
+        final_confidence_formula="min(domain_confidence, intent_confidence)",
+        domain_source=result.get("domain_source"),
+        low_confidence=result.get("low_confidence"),
     )
 
     # 2. LLM 요약 + 일정 추출

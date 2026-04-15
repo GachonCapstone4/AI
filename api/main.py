@@ -11,7 +11,10 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 from inference import load_classify_pipeline, predict_email
 from api.routers import classify, summarize
 from messaging.consumer_classify import ClassifyConsumerRunner
+from messaging.structured_log import get_logger
 from src.settings import validate_startup_settings
+
+log = get_logger("api.main")
 
 
 @asynccontextmanager
@@ -25,6 +28,16 @@ async def lifespan(app: FastAPI):
 
     print("[Startup] classify pipeline loading...")
     classify_model = load_classify_pipeline()
+    runtime = classify_model.get("runtime") or {}
+    log.info(
+        "classify_pipeline_ready",
+        model_source=runtime.get("model_source"),
+        active_model_version=runtime.get("active_model_version"),
+        metadata_model_version=runtime.get("metadata_model_version"),
+        loaded_sbert_path=runtime.get("loaded_sbert_path"),
+        loaded_domain_model_path=runtime.get("loaded_domain_model_path"),
+        loaded_intent_model_path=runtime.get("loaded_intent_model_path"),
+    )
     app.state.classify_pipeline = {
         "model": classify_model,
         "predict": predict_email,
