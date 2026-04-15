@@ -53,6 +53,7 @@ def run_classify(payload: ClassifyRequest, pipeline: dict) -> ClassifyResponse:
             domain=result["domain"],
             intent=result["intent"],
         ),
+        confidence_score=result["confidence_score"],
         summary=summary,
         schedule_info=schedule_info,
         email_embedding=embedding,

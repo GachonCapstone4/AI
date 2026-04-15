@@ -10,6 +10,7 @@ class ResponseMeta(BaseModel):
 
     elapsed_ms: float
     source: str = "ai-server"
+    model_version: Optional[str] = None
 
 
 class ErrorResponse(BaseModel):

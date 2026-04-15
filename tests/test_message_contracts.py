@@ -43,6 +43,7 @@ def classify_output():
         "outbox_id":       1,
         "email_id":        1,
         "classification":  {"domain": "업무", "intent": "문의"},
+        "confidence_score": 0.91,
         "summary":         "납품 일정 확인 요청 이메일입니다.",
         "schedule_info":   None,
         "email_embedding": [0.1, 0.2, 0.3],
@@ -102,6 +103,7 @@ class TestClassifyOutput:
         assert resp.outbox_id == 1
         assert resp.classification.domain == "업무"
         assert resp.classification.intent == "문의"
+        assert resp.confidence_score == 0.91
         assert isinstance(resp.email_embedding, list)
         assert all(isinstance(v, float) for v in resp.email_embedding)
 
@@ -138,31 +140,46 @@ class TestClassifyOutput:
 
 class TestResponseMeta:
     def test_valid_meta_parses(self):
-        meta = ResponseMeta(elapsed_ms=123.4, source="consumer.classify")
+        meta = ResponseMeta(
+            elapsed_ms=123.4,
+            source="consumer.classify",
+            model_version="2026-04-14-001",
+        )
         assert meta.elapsed_ms == 123.4
         assert meta.source     == "consumer.classify"
+        assert meta.model_version == "2026-04-14-001"
 
     def test_source_defaults_to_ai_server(self):
         meta = ResponseMeta(elapsed_ms=50.0)
         assert meta.source == "ai-server"
 
     def test_meta_embedded_in_classify_response(self, classify_output):
-        classify_output["meta"] = {"elapsed_ms": 99.9, "source": "consumer.classify"}
+        classify_output["meta"] = {
+            "elapsed_ms": 99.9,
+            "source": "consumer.classify",
+            "model_version": "2026-04-14-001",
+        }
         resp = ClassifyResponse(**classify_output)
         assert resp.meta is not None
         assert resp.meta.elapsed_ms == 99.9
         assert resp.meta.source     == "consumer.classify"
+        assert resp.meta.model_version == "2026-04-14-001"
 
     def test_meta_absent_is_none(self, classify_output):
         resp = ClassifyResponse(**classify_output)
         assert resp.meta is None
 
     def test_meta_json_serializable(self, classify_output):
-        classify_output["meta"] = {"elapsed_ms": 77.0, "source": "consumer.classify"}
+        classify_output["meta"] = {
+            "elapsed_ms": 77.0,
+            "source": "consumer.classify",
+            "model_version": "2026-04-14-001",
+        }
         resp = ClassifyResponse(**classify_output)
         dumped = json.dumps(resp.model_dump())
         parsed = json.loads(dumped)
         assert parsed["meta"]["elapsed_ms"] == 77.0
+        assert parsed["meta"]["model_version"] == "2026-04-14-001"
 
 
 class TestBackendClassifyPublishPayload:
@@ -171,10 +188,15 @@ class TestBackendClassifyPublishPayload:
             outbox_id=1,
             email_id=2,
             classification=Classification(domain="업무", intent="문의"),
+            confidence_score=0.91,
             summary="납품 일정 확인 요청 이메일입니다.",
             schedule_info={"date": "2026-04-10", "time": "14:00"},
             email_embedding=[0.1, 0.2, 0.3],
-            meta=ResponseMeta(elapsed_ms=12.3, source="consumer.classify"),
+            meta=ResponseMeta(
+                elapsed_ms=12.3,
+                source="consumer.classify",
+                model_version="2026-04-14-001",
+            ),
         )
 
         payload = _build_backend_classify_payload(result)
@@ -184,12 +206,11 @@ class TestBackendClassifyPublishPayload:
             "email_id": 2,
             "domain": "업무",
             "intent": "문의",
-            "confidence_score": 0.0,
+            "confidence_score": 0.91,
             "summary_text": "납품 일정 확인 요청 이메일입니다.",
             "schedule_detected": True,
-            "email_embedding": [0.1, 0.2, 0.3],
             "entities_json": '{"date": "2026-04-10", "time": "14:00"}',
-            "model_version": "unknown",
+            "model_version": "2026-04-14-001",
         }
 
     def test_builds_empty_schedule_defaults(self):
@@ -197,6 +218,7 @@ class TestBackendClassifyPublishPayload:
             outbox_id=1,
             email_id=2,
             classification=Classification(domain="업무", intent="문의"),
+            confidence_score=0.45,
             summary="요약",
             schedule_info=None,
             email_embedding=[0.1],

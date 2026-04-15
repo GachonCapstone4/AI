@@ -22,6 +22,7 @@ def _make_mock_classify_pipeline():
         "predict": lambda email_text, pipeline: {
             "domain": "업무",
             "intent": "문의",
+            "confidence_score": 0.91,
         },
     }
 

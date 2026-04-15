@@ -83,13 +83,25 @@ def _build_backend_classify_payload(result) -> dict:
         "email_id": result.email_id,
         "domain": result.classification.domain,
         "intent": result.classification.intent,
-        "confidence_score": 0.0,
+        "confidence_score": result.confidence_score,
         "summary_text": result.summary,
         "schedule_detected": schedule_detected,
-        "email_embedding": result.email_embedding,
         "entities_json": entities_json,
         "model_version": model_version,
     }
+
+
+def _resolve_model_version(pipeline: dict) -> str:
+    settings_version = get_settings().ACTIVE_MODEL_VERSION
+    if settings_version:
+        return settings_version
+
+    model_metadata = (pipeline.get("model") or {}).get("metadata") or {}
+    return (
+        model_metadata.get("model_version")
+        or model_metadata.get("modelVersion")
+        or "unknown"
+    )
 
 
 class ClassifyConsumerRunner:
@@ -309,7 +321,11 @@ def _callback(ch, method, properties, body):
                  queue=CONSUME_QUEUE, outbox_id=payload.outbox_id, email_id=payload.email_id)
 
         elapsed_ms = round((time.perf_counter() - t0) * 1000, 2)
-        result.meta = ResponseMeta(elapsed_ms=elapsed_ms, source="consumer.classify")
+        result.meta = ResponseMeta(
+            elapsed_ms=elapsed_ms,
+            source="consumer.classify",
+            model_version=_resolve_model_version(_classify_pipeline),
+        )
 
         log.info("publish_attempt",
                  queue=CONSUME_QUEUE,

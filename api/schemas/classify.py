@@ -25,6 +25,7 @@ class ClassifyResponse(BaseModel):
     outbox_id: int
     email_id: int
     classification: Classification
+    confidence_score: float
     summary: str
     schedule_info: Optional[dict] = None
     email_embedding: List[float]

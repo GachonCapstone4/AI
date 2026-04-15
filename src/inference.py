@@ -58,12 +58,14 @@ def predict_email(
         float(domain_conf) < confidence_threshold
         or float(intent_conf) < confidence_threshold
     )
+    confidence_score = min(float(domain_conf), float(intent_conf))
 
     return {
         "domain": domain_name,
         "domain_confidence": round(float(domain_conf), 4),
         "intent": intent_name,
         "intent_confidence": round(float(intent_conf), 4),
+        "confidence_score": round(confidence_score, 4),
         "low_confidence": low_confidence,
         "top2_domains": top2_domains,
         "domain_source": domain_source,
