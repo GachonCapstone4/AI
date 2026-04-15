@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from functools import lru_cache
+import json
 
 import requests
 from openai import OpenAI
 
+from messaging.structured_log import get_logger
 from src.settings import get_settings
 
 
@@ -14,6 +16,9 @@ class LLMTransientError(RuntimeError):
 
 class LLMPermanentError(RuntimeError):
     pass
+
+
+log = get_logger("api.services.llm_client")
 
 
 def _mask_secret(value: str) -> str:
@@ -73,6 +78,12 @@ class OpenAICompatibleLLMClient:
             "Content-Type": "application/json",
         }
 
+    def _masked_request_headers(self) -> dict[str, str]:
+        return {
+            "Authorization": f"Bearer {_mask_secret(self._api_key)}",
+            "Content-Type": "application/json",
+        }
+
     def _request_payload(
         self,
         *,
@@ -110,11 +121,39 @@ class OpenAICompatibleLLMClient:
             max_output_tokens=max_output_tokens,
             temperature=temperature,
         )
+        headers = self._request_headers()
+        prepared_request = requests.Request(
+            method="POST",
+            url=url,
+            headers=headers,
+            json=payload,
+        ).prepare()
+        payload_json = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+        log.info(
+            "llm_outgoing_request",
+            provider=self._provider,
+            method=prepared_request.method,
+            url=prepared_request.url,
+            model=self._model,
+            api_key_present=bool(self._api_key),
+            auth_header_has_bearer_prefix=headers["Authorization"].startswith("Bearer "),
+            auth_header_masked=self._masked_request_headers()["Authorization"],
+            headers=self._masked_request_headers(),
+            payload=payload,
+            payload_json=payload_json,
+            curl_repro=(
+                f"curl {prepared_request.url} "
+                '-H "Authorization: Bearer <MASKED_API_KEY>" '
+                '-H "Content-Type: application/json" '
+                f"-d '{payload_json}'"
+            ),
+        )
 
         try:
             response = requests.post(
                 url,
-                headers=self._request_headers(),
+                headers=headers,
                 json=payload,
                 timeout=(5, 60),
             )
