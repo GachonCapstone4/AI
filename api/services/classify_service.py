@@ -4,7 +4,7 @@
 # ============================================================
 
 from api.schemas import ClassifyRequest, ClassifyResponse, Classification
-from api.services.summarize_service import summarize_email
+from api.services.summarize_service import parse_datetime_kst, summarize_email
 from messaging.structured_log import get_logger
 
 MIN_SUMMARY_LENGTH = 10
@@ -58,9 +58,21 @@ def run_classify(payload: ClassifyRequest, pipeline: dict) -> ClassifyResponse:
     )
 
     # 2. LLM 요약 + 일정 추출
-    summarize_result = summarize_email(email_text)
+    summarize_result = summarize_email(email_text, payload.received_at)
     summary = summarize_result["summary"]
-    schedule_info = summarize_result["schedule"]
+    raw_schedule = summarize_result["schedule"]
+    schedule_info = None
+
+    if raw_schedule is not None:
+        date_text = raw_schedule.get("date_text")
+        time_text = raw_schedule.get("time_text")
+        date, time = parse_datetime_kst(date_text, time_text, payload.received_at)
+        schedule_info = {
+            "date": date,
+            "time": time,
+            "location": raw_schedule.get("location"),
+            "attendees": raw_schedule.get("attendees") or [],
+        }
 
     # 3. SBERT 임베딩 — summary 비거나 너무 짧으면 email_text fallback
     embed_text = summary if summary and len(summary) >= MIN_SUMMARY_LENGTH else email_text

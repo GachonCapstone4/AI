@@ -19,3 +19,4 @@ openai
 python-dotenv
 pika
 boto3
+dateparser
