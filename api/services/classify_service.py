@@ -4,6 +4,7 @@
 # ============================================================
 
 from api.schemas import ClassifyRequest, ClassifyResponse, Classification
+from api.services.llm_client import LLMPermanentError
 from api.services.summarize_service import parse_datetime_kst, summarize_email
 from messaging.structured_log import get_logger
 
@@ -58,7 +59,20 @@ def run_classify(payload: ClassifyRequest, pipeline: dict) -> ClassifyResponse:
     )
 
     # 2. LLM 요약 + 일정 추출
-    summarize_result = summarize_email(email_text, payload.received_at)
+    try:
+        summarize_result = summarize_email(email_text, payload.received_at)
+    except LLMPermanentError as e:
+        log.warning(
+            "llm_summarize_failed_fallback",
+            outbox_id=payload.outbox_id,
+            email_id=payload.email_id,
+            error=str(e),
+        )
+        summarize_result = {
+            "summary": "요약 생성 실패",
+            "schedule": None,
+        }
+
     summary = summarize_result["summary"]
     raw_schedule = summarize_result["schedule"]
     schedule_info = None

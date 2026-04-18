@@ -169,6 +169,11 @@ class OpenAICompatibleLLMClient:
                 f"(provider={self._provider}, base_url={self._base_url}, "
                 f"model={self._model}, api_key={_mask_secret(self._api_key)})"
             )
+        if response.status_code == 429 and "daily quota exceeded" in response.text.lower():
+            raise LLMPermanentError(
+                "LLM request rejected permanently: "
+                f"{response.status_code} {response.text}"
+            )
         if response.status_code >= 500:
             raise LLMTransientError(
                 f"LLM upstream server error: {response.status_code} {response.text}"
