@@ -32,6 +32,8 @@ async def summarize(payload: SummarizeRequest):
         final_schedule = None
 
         if raw_schedule is not None:
+            if raw_schedule:
+                raw_schedule.pop("attendees", None)
             date_text = raw_schedule.get("date_text")
             time_text = raw_schedule.get("time_text")
             date, time = parse_datetime_kst(date_text, time_text, base_datetime)
@@ -39,7 +41,6 @@ async def summarize(payload: SummarizeRequest):
                 "date": date,
                 "time": time,
                 "location": raw_schedule.get("location"),
-                "attendees": raw_schedule.get("attendees") or [],
             }
 
         return SummarizeResponse(

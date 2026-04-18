@@ -113,7 +113,7 @@ Backend consumer consumes from queue q.2app.classify
 | classification.domain | string | 분류된 도메인 |
 | classification.intent | string | 분류된 인텐트 |
 | summary | string | GPT 요약 |
-| schedule_info | object \| null | 일정 정보. 없으면 null |
+| schedule_info | object \| null | 일정 정보. 없으면 null. 포함 키는 `date`, `time`, `location` |
 | email_embedding | float[] | SBERT 임베딩 벡터 |
 | meta.elapsed_ms | float | AI 서버 처리 시간 (ms) |
 | meta.source | string | 항상 `"consumer.classify"` |

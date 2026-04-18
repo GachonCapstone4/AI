@@ -78,6 +78,8 @@ def run_classify(payload: ClassifyRequest, pipeline: dict) -> ClassifyResponse:
     schedule_info = None
 
     if raw_schedule is not None:
+        if raw_schedule:
+            raw_schedule.pop("attendees", None)
         date_text = raw_schedule.get("date_text")
         time_text = raw_schedule.get("time_text")
         date, time = parse_datetime_kst(date_text, time_text, payload.received_at)
@@ -85,7 +87,6 @@ def run_classify(payload: ClassifyRequest, pipeline: dict) -> ClassifyResponse:
             "date": date,
             "time": time,
             "location": raw_schedule.get("location"),
-            "attendees": raw_schedule.get("attendees") or [],
         }
 
     # 3. SBERT 임베딩 — summary 비거나 너무 짧으면 email_text fallback

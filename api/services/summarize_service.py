@@ -35,8 +35,8 @@ def _build_prompt(email_text: str, base_datetime) -> str:
 - 날짜와 시간은 절대 계산하지 말고 이메일 원문에 나온 표현 그대로 추출하세요.
 - "다음주 화요일", "내일 오후 2시", "3월 28일", "14:00" 같은 표현은 정규화하지 말고 그대로 반환하세요.
 - location은 Zoom, Teams, 회의실, 본사, 카페, 주소, 온라인 회의 링크 등 명시된 장소만 추출하세요.
-- attendees는 이메일 본문에 명시된 이름만 추출하세요.
-- 값이 없으면 location은 null, attendees는 []로 설정하세요.
+- attendees 정보는 더 이상 필요하지 않으므로 추출하지 말 것
+- 값이 없으면 location은 null로 설정하세요.
 
 [이메일 내용]
 {email_text}
@@ -47,8 +47,7 @@ def _build_prompt(email_text: str, base_datetime) -> str:
   "schedule": {{
     "date_text": "다음주 화요일 또는 3월 28일 또는 null",
     "time_text": "오후 2시 또는 14:00 또는 null",
-    "location": "장소 (없으면 null)",
-    "attendees": ["참석자 목록"]
+    "location": "장소 (없으면 null)"
   }}
 }}
 
@@ -214,11 +213,11 @@ def summarize_email(email_text: str, base_datetime=None) -> dict:
         result = _extract_json(raw)
         schedule = result.get("schedule", None)
         if isinstance(schedule, dict):
+            schedule.pop("attendees", None)
             schedule = {
                 "date_text": schedule.get("date_text"),
                 "time_text": schedule.get("time_text"),
                 "location": schedule.get("location"),
-                "attendees": schedule.get("attendees") or [],
             }
         return {
             "summary": result.get("summary", ""),

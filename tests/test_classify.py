@@ -38,7 +38,6 @@ def _mock_summarize_with_schedule(email_text: str, base_datetime=None) -> dict:
             "date_text": "다음주 화요일",
             "time_text": "오후 2시",
             "location": "회의실 A",
-            "attendees": ["홍길동"],
         },
     }
 
@@ -60,8 +59,8 @@ class TestClassifySuccess:
             "date": "2026-04-14",
             "time": "14:00",
             "location": "회의실 A",
-            "attendees": ["홍길동"],
         }
+        assert "attendees" not in data["schedule_info"]
 
     def test_returns_required_fields(self, app_client):
         with patch("api.services.classify_service.summarize_email", side_effect=_mock_summarize):

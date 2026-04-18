@@ -115,10 +115,11 @@ class TestClassifyOutput:
     def test_schedule_info_with_dict(self, classify_output):
         classify_output["schedule_info"] = {
             "date": "2026-04-10", "time": "14:00",
-            "location": "회의실 A", "attendees": ["홍길동"],
+            "location": "회의실 A",
         }
         resp = ClassifyResponse(**classify_output)
         assert resp.schedule_info["date"] == "2026-04-10"
+        assert "attendees" not in resp.schedule_info
 
     def test_embedding_must_be_float_list(self, classify_output):
         classify_output["email_embedding"] = [0.1, 0.2, 0.3]
@@ -212,6 +213,7 @@ class TestBackendClassifyPublishPayload:
             "entities_json": '{"date": "2026-04-10", "time": "14:00"}',
             "model_version": "2026-04-14-001",
         }
+        assert "attendees" not in payload["entities_json"]
 
     def test_builds_empty_schedule_defaults(self):
         result = ClassifyResponse(
@@ -228,3 +230,4 @@ class TestBackendClassifyPublishPayload:
 
         assert payload["schedule_detected"] is False
         assert payload["entities_json"] == "{}"
+        assert "attendees" not in payload["entities_json"]

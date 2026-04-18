@@ -73,7 +73,9 @@ TRANSIENT_ERROR_MARKERS = (
 
 def _build_backend_classify_payload(result) -> dict:
     schedule_info = result.schedule_info
-    schedule_detected = schedule_info is not None
+    date = schedule_info.get("date") if schedule_info else None
+    time = schedule_info.get("time") if schedule_info else None
+    schedule_detected = bool(date or time)
     entities_json = (
         json.dumps(schedule_info, ensure_ascii=False)
         if schedule_detected
