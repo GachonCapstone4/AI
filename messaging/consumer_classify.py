@@ -72,14 +72,19 @@ TRANSIENT_ERROR_MARKERS = (
 
 
 def _build_backend_classify_payload(result) -> dict:
-    schedule_info = result.schedule_info
+    raw_schedule_info = result.schedule_info or {}
+    schedule_info = {
+        "date": raw_schedule_info.get("date"),
+        "time": raw_schedule_info.get("time"),
+        "location": raw_schedule_info.get("location"),
+    }
     date = schedule_info.get("date") if schedule_info else None
     time = schedule_info.get("time") if schedule_info else None
     schedule_detected = bool(date or time)
     entities_json = (
-        json.dumps(schedule_info, ensure_ascii=False)
+        schedule_info
         if schedule_detected
-        else "{}"
+        else {}
     )
     model_version = getattr(result.meta, "model_version", None) or "unknown"
 

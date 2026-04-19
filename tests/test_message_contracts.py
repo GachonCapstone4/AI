@@ -20,6 +20,7 @@ from api.schemas import (
     ResponseMeta,
 )
 from messaging.consumer_classify import _build_backend_classify_payload
+from messaging.publisher import publish
 
 
 # ── 픽스처: 표준 입력 메시지 ─────────────────────────────────
@@ -191,7 +192,12 @@ class TestBackendClassifyPublishPayload:
             classification=Classification(domain="업무", intent="문의"),
             confidence_score=0.91,
             summary="납품 일정 확인 요청 이메일입니다.",
-            schedule_info={"date": "2026-04-10", "time": "14:00"},
+            schedule_info={
+                "date": "2026-04-10",
+                "time": "14:00",
+                "location": "회의실 A",
+                "attendees": ["kim@example.com"],
+            },
             email_embedding=[0.1, 0.2, 0.3],
             meta=ResponseMeta(
                 elapsed_ms=12.3,
@@ -210,9 +216,15 @@ class TestBackendClassifyPublishPayload:
             "confidence_score": 0.91,
             "summary_text": "납품 일정 확인 요청 이메일입니다.",
             "schedule_detected": True,
-            "entities_json": '{"date": "2026-04-10", "time": "14:00"}',
+            "entities_json": {
+                "date": "2026-04-10",
+                "time": "14:00",
+                "location": "회의실 A",
+            },
             "model_version": "2026-04-14-001",
         }
+        assert isinstance(payload["entities_json"], dict)
+        assert set(payload["entities_json"].keys()) == {"date", "time", "location"}
         assert "attendees" not in payload["entities_json"]
 
     def test_builds_empty_schedule_defaults(self):
@@ -229,5 +241,56 @@ class TestBackendClassifyPublishPayload:
         payload = _build_backend_classify_payload(result)
 
         assert payload["schedule_detected"] is False
-        assert payload["entities_json"] == "{}"
-        assert "attendees" not in payload["entities_json"]
+        assert payload["entities_json"] == {}
+
+    def test_builds_empty_entities_when_only_location_exists(self):
+        result = ClassifyResponse(
+            outbox_id=1,
+            email_id=2,
+            classification=Classification(domain="업무", intent="문의"),
+            confidence_score=0.45,
+            summary="요약",
+            schedule_info={"location": "Zoom", "attendees": ["kim@example.com"]},
+            email_embedding=[0.1],
+        )
+
+        payload = _build_backend_classify_payload(result)
+
+        assert payload["schedule_detected"] is False
+        assert payload["entities_json"] == {}
+
+    def test_publish_serializes_entities_json_as_json_object(self):
+        class FakeChannel:
+            def __init__(self):
+                self.published = None
+
+            def basic_publish(self, **kwargs):
+                self.published = kwargs
+
+        payload = {
+            "outbox_id": 15,
+            "email_id": 19,
+            "domain": "Sales",
+            "intent": "Meeting Request",
+            "confidence_score": 0.84,
+            "summary_text": "이메일 핵심 요약",
+            "schedule_detected": True,
+            "entities_json": {
+                "date": "2026-04-21",
+                "time": "14:00",
+                "location": "Zoom",
+            },
+            "model_version": "2026-04-14-001",
+        }
+
+        channel = FakeChannel()
+        publish(channel, "2app.classify", payload)
+
+        published_body = json.loads(channel.published["body"].decode("utf-8"))
+        assert isinstance(published_body["entities_json"], dict)
+        assert published_body["entities_json"] == {
+            "date": "2026-04-21",
+            "time": "14:00",
+            "location": "Zoom",
+        }
+        assert "attendees" not in published_body["entities_json"]
