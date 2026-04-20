@@ -13,6 +13,33 @@ def test_parse_datetime_kst_relative_korean_expression():
     assert time == "14:00"
 
 
+def test_parse_datetime_kst_this_week_weekday_rolls_to_next_week_when_passed():
+    base_datetime = datetime.fromisoformat("2026-04-18T09:00:00+09:00")
+
+    date, time = parse_datetime_kst("이번 주 금요일", "오후 2시", base_datetime)
+
+    assert date == "2026-04-24"
+    assert time == "14:00"
+
+
+def test_parse_datetime_kst_next_week_weekday_applies_plus_seven_days():
+    base_datetime = datetime.fromisoformat("2026-04-14T09:00:00+09:00")
+
+    date, time = parse_datetime_kst("다음 주 화요일", "오후 2시", base_datetime)
+
+    assert date == "2026-04-21"
+    assert time == "14:00"
+
+
+def test_parse_datetime_kst_weekday_only_uses_nearest_upcoming_weekday():
+    base_datetime = datetime.fromisoformat("2026-04-18T09:00:00+09:00")
+
+    date, time = parse_datetime_kst("금요일", "오후 2시", base_datetime)
+
+    assert date == "2026-04-24"
+    assert time == "14:00"
+
+
 def test_parse_datetime_kst_absolute_month_day():
     base_datetime = datetime.fromisoformat("2026-04-18T09:00:00+09:00")
 

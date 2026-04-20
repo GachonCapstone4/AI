@@ -126,12 +126,9 @@ def _parse_korean_date_text(date_text, base_dt: datetime) -> datetime | None:
     if not text:
         return None
 
-    weekday_match = re.fullmatch(r"다음\s*주\s*([월화수목금토일])요일?", text)
-    if weekday_match:
-        weekday_map = {"월": 0, "화": 1, "수": 2, "목": 3, "금": 4, "토": 5, "일": 6}
-        monday = base_dt - timedelta(days=base_dt.weekday())
-        target = monday + timedelta(days=7 + weekday_map[weekday_match.group(1)])
-        return target
+    weekday_target = _parse_korean_weekday_text(text, base_dt)
+    if weekday_target is not None:
+        return weekday_target
 
     month_day_match = re.fullmatch(r"(\d{1,2})월\s*(\d{1,2})일", text)
     if month_day_match:
@@ -143,6 +140,30 @@ def _parse_korean_date_text(date_text, base_dt: datetime) -> datetime | None:
             return None
 
     return None
+
+
+def _parse_korean_weekday_text(text: str, base_dt: datetime) -> datetime | None:
+    weekday_map = {"월": 0, "화": 1, "수": 2, "목": 3, "금": 4, "토": 5, "일": 6}
+    weekday_match = re.search(r"(이번\s*주|다음\s*주)?\s*([월화수목금토일])요일?", text)
+    if weekday_match is None:
+        return None
+
+    modifier = (weekday_match.group(1) or "").replace(" ", "")
+    target_weekday = weekday_map[weekday_match.group(2)]
+    start_of_week = base_dt - timedelta(days=base_dt.weekday())
+    current_week_target = start_of_week + timedelta(days=target_weekday)
+
+    if modifier == "다음주":
+        return current_week_target + timedelta(days=7)
+
+    if modifier == "이번주":
+        if current_week_target.date() < base_dt.date():
+            return current_week_target + timedelta(days=7)
+        return current_week_target
+
+    if current_week_target.date() <= base_dt.date():
+        return current_week_target + timedelta(days=7)
+    return current_week_target
 
 
 def _parse_korean_time_text(time_text) -> datetime | None:
