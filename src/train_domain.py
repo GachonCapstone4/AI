@@ -20,12 +20,14 @@ from evaluation import evaluate_classifier
 def train_domain_classifier(
     X        : np.ndarray,
     y_domain : np.ndarray,
+    model_path = DOMAIN_CLF_PATH,
+    label_encoder_path = DOMAIN_LE_PATH,
 ) -> tuple:
     """
     Domain LR 학습 + 평가 + models/ 저장
     return: (domain_clf, le_domain)
     """
-    os.makedirs(MODEL_DIR, exist_ok=True)
+    os.makedirs(os.path.dirname(model_path), exist_ok=True)
 
     le_domain    = LabelEncoder()
     y_domain_enc = le_domain.fit_transform(y_domain)
@@ -54,8 +56,9 @@ def train_domain_classifier(
     clf.fit(X, y_domain_enc)
 
     # models/ 저장
-    joblib.dump(clf,       DOMAIN_CLF_PATH)
-    joblib.dump(le_domain, DOMAIN_LE_PATH)
-    print(f"[train_domain] 저장 완료 → {MODEL_DIR}")
+    joblib.dump(clf, model_path)
+    if label_encoder_path is not None:
+        joblib.dump(le_domain, label_encoder_path)
+    print(f"[train_domain] 저장 완료 → {os.path.dirname(model_path)}")
 
     return clf, le_domain

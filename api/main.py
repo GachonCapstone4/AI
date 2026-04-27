@@ -9,7 +9,8 @@ from fastapi import FastAPI
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from inference import load_classify_pipeline, predict_email
-from api.routers import classify, summarize
+from model_manager import ModelManager
+from api.routers import classify, deployment, summarize
 from messaging.consumer_classify import ClassifyConsumerRunner
 from messaging.structured_log import get_logger
 from src.settings import validate_startup_settings
@@ -42,6 +43,9 @@ async def lifespan(app: FastAPI):
         "model": classify_model,
         "predict": predict_email,
     }
+    model_manager = ModelManager()
+    model_manager.load_initial_model(existing_bundle=classify_model)
+    app.state.model_manager = model_manager
     print("[Startup] classify pipeline ready")
 
     print("[Startup] classify consumer starting...")
@@ -73,11 +77,16 @@ app = FastAPI(
             "name": "Summarization",
             "description": "보조 요약 기능입니다.",
         },
+        {
+            "name": "Deployment",
+            "description": "무중단 모델 배포를 위한 preload, validate, switch API입니다.",
+        },
     ],
 )
 
 app.include_router(classify.router, tags=["Classification"])
 app.include_router(summarize.router, tags=["Summarization"])
+app.include_router(deployment.router, tags=["Deployment"])
 
 
 @app.get("/health")

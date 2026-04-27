@@ -33,12 +33,15 @@ def run_sbert_finetuning(
     epochs       : int   = SBERT_EPOCHS,
     warmup_ratio : float = SBERT_WARMUP_RATIO,
     val_ratio    : float = SBERT_VAL_RATIO,
+    pairs         : list | None = None,
+    pairs_csv_path: str | None = None,
 ) -> SentenceTransformer:
     """
     pair CSV 로드 → train/val split → ContrastiveLoss fine-tuning
     return: fine-tuned SentenceTransformer
     """
-    pairs                        = load_pairs_csv()
+    if pairs is None:
+        pairs = load_pairs_csv(pairs_csv_path) if pairs_csv_path else load_pairs_csv()
     train_examples, val_examples = split_pairs(pairs, val_ratio)
 
     model            = SentenceTransformer(base_model)

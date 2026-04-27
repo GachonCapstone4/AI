@@ -21,12 +21,14 @@ from evaluation import evaluate_classifier
 def train_intent_classifiers(
     X  : np.ndarray,
     df : pd.DataFrame,
+    model_path = INTENT_CLF_PATH,
+    label_encoders_path = INTENT_LE_PATH,
 ) -> tuple:
     """
     도메인별 Intent LR 학습 + 평가 + models/ 저장
     return: (intent_classifiers, intent_encoders)
     """
-    os.makedirs(MODEL_DIR, exist_ok=True)
+    os.makedirs(os.path.dirname(model_path), exist_ok=True)
 
     intent_classifiers = {}
     intent_encoders    = {}
@@ -80,8 +82,9 @@ def train_intent_classifiers(
         intent_encoders[domain]    = le_intent
 
     # models/ 저장
-    joblib.dump(intent_classifiers, INTENT_CLF_PATH)
-    joblib.dump(intent_encoders,    INTENT_LE_PATH)
-    print(f"\n[train_intent] 저장 완료 → {MODEL_DIR}")
+    joblib.dump(intent_classifiers, model_path)
+    if label_encoders_path is not None:
+        joblib.dump(intent_encoders, label_encoders_path)
+    print(f"\n[train_intent] 저장 완료 → {os.path.dirname(model_path)}")
 
     return intent_classifiers, intent_encoders

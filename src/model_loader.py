@@ -12,6 +12,12 @@ from messaging.structured_log import get_logger
 
 
 OPTIONAL_ARTIFACTS = ("label_mapping.json", "metadata.json")
+STANDARD_OPTIONAL_ARTIFACTS = ("metrics.json", "config.json", "label_mapping.json")
+STANDARD_REQUIRED_FILES = (
+    "domain_model.pkl",
+    "intent_model.pkl",
+)
+LATEST_POINTER_KEY = "models/latest.json"
 REQUIRED_S3_FILES = (
     "domain_classifier.pkl",
     "intent_classifiers.pkl",
@@ -203,6 +209,106 @@ def resolve_runtime_model_paths() -> RuntimeModelPaths:
         return _resolve_s3_model_paths()
     log.info("runtime_model_paths_resolved", model_source="local")
     return _resolve_local_model_paths()
+
+
+def _model_cache_dir_for_version(version: str) -> Path:
+    settings = get_settings()
+    return Path(settings.MODEL_LOCAL_CACHE_DIR) / version
+
+
+def load_latest_model_version() -> str:
+    settings = get_settings()
+    if not settings.S3_MODEL_BUCKET:
+        raise RuntimeError("S3_MODEL_BUCKET is required to load models/latest.json")
+
+    cache = S3ArtifactCache(region_name=settings.AWS_REGION)
+    response = cache._get_client().get_object(
+        Bucket=settings.S3_MODEL_BUCKET,
+        Key=LATEST_POINTER_KEY,
+    )
+    payload = json.loads(response["Body"].read().decode("utf-8"))
+    model_version = payload.get("model_version")
+    if not isinstance(model_version, str) or not model_version:
+        raise RuntimeError("models/latest.json does not contain a valid model_version")
+    return model_version
+
+
+def ensure_standard_model_artifact_cached(version: str) -> Path:
+    settings = get_settings()
+    artifact_dir = _model_cache_dir_for_version(version)
+
+    if settings.MODEL_SOURCE == "s3":
+        cache = S3ArtifactCache(region_name=settings.AWS_REGION)
+        base_prefix = f"{settings.S3_MODEL_PREFIX.rstrip('/')}/{version}"
+        cache.download_prefix(
+            bucket=settings.S3_MODEL_BUCKET or "",
+            prefix=f"{base_prefix}/",
+            target_dir=artifact_dir,
+        )
+
+    missing = [
+        path
+        for path in (
+            artifact_dir / "sbert",
+            artifact_dir / "domain_model.pkl",
+            artifact_dir / "intent_model.pkl",
+            artifact_dir / "metrics.json",
+            artifact_dir / "config.json",
+            artifact_dir / "label_mapping.json",
+        )
+        if not path.exists()
+    ]
+    if missing:
+        missing_items = ", ".join(str(path) for path in missing)
+        raise RuntimeError(f"Standard model artifacts are missing: {missing_items}")
+
+    return artifact_dir
+
+
+def load_standard_model_bundle(version: str) -> dict:
+    settings = get_settings()
+    artifact_dir = ensure_standard_model_artifact_cached(version)
+
+    domain_payload = joblib.load(str(artifact_dir / "domain_model.pkl"))
+    intent_payload = joblib.load(str(artifact_dir / "intent_model.pkl"))
+    label_mapping = json.loads(
+        (artifact_dir / "label_mapping.json").read_text(encoding="utf-8")
+    )
+    config = json.loads((artifact_dir / "config.json").read_text(encoding="utf-8"))
+    metrics = json.loads((artifact_dir / "metrics.json").read_text(encoding="utf-8"))
+
+    bundle = {
+        "sbert": SentenceTransformer(str(artifact_dir / "sbert")),
+        "domain_clf": domain_payload["classifier"],
+        "le_domain": domain_payload["label_encoder"],
+        "intent_clf": intent_payload["classifiers"],
+        "le_intent": intent_payload["label_encoders"],
+        "label_mapping": label_mapping,
+        "config": config,
+        "metrics": metrics,
+        "runtime": {
+            "model_source": settings.MODEL_SOURCE,
+            "active_model_version": version,
+            "loaded_sbert_path": str(artifact_dir / "sbert"),
+            "loaded_domain_model_path": str(artifact_dir / "domain_model.pkl"),
+            "loaded_intent_model_path": str(artifact_dir / "intent_model.pkl"),
+            "loaded_config_path": str(artifact_dir / "config.json"),
+            "loaded_metrics_path": str(artifact_dir / "metrics.json"),
+            "loaded_label_mapping_path": str(artifact_dir / "label_mapping.json"),
+            "metadata_model_version": config.get("model_version"),
+            "artifact_format": "standard",
+        },
+    }
+
+    log.info(
+        "standard_model_bundle_loaded",
+        model_source=settings.MODEL_SOURCE,
+        active_model_version=version,
+        loaded_sbert_path=bundle["runtime"]["loaded_sbert_path"],
+        loaded_domain_model_path=bundle["runtime"]["loaded_domain_model_path"],
+        loaded_intent_model_path=bundle["runtime"]["loaded_intent_model_path"],
+    )
+    return bundle
 
 
 def load_classification_pipeline() -> dict:

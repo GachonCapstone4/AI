@@ -1,4 +1,4 @@
-# 버전 관리
+# Git
 .git
 .gitignore
 
@@ -8,8 +8,8 @@
 *.swp
 *.swo
 
-# Python
-__pycache__
+# Python cache
+__pycache__/
 *.pyc
 *.pyo
 *.pyd
@@ -18,14 +18,17 @@ __pycache__
 .mypy_cache
 .ruff_cache
 
-# 환경변수
+# Virtual environments
+.venv/
+venv/
+
+# Environment files
 .env
+*.env
 .env.*
 !.env.example
-.venv
-venv
 
-# 문서
+# Documents
 *.md
 CLAUDE.md
 RABBITMQ_SPEC.md
@@ -34,17 +37,26 @@ DRAFT_RAG_MIGRATION_PLAN.md
 ai-retraining-implementation-plan.md
 ai-retraining-pipeline-production-plan.md
 
-# 개발/테스트
+# Development and test files
 tests/
 scripts/
 notebooks/
-data/
 test_sbert.py
 
-# 출력 및 모델
-outputs/
+# Local data
+data/
+dataset/
 models/
+outputs/
 upload_model/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.cache
+
+# Node
+node_modules/
 
 # OS
 .DS_Store
