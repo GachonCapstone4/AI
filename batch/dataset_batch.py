@@ -238,7 +238,7 @@ def main():
         # 5. 완료 이벤트 발행
         publish_training_event(
             channel,
-            status="completed",
+            status="COMPLETED",
             dataset_version=dataset_version
         )
 
@@ -247,7 +247,7 @@ def main():
     except Exception as e:
         logger.error(f"배치 실패: {e}", exc_info=True)
         publish_sse_log(channel, f"[ERROR] 데이터 수집 실패: {e}")
-        publish_training_event(channel, status="failed", error_message=str(e))
+        publish_training_event(channel, status="FAILED", error_message=str(e))
         raise
 
     finally:
