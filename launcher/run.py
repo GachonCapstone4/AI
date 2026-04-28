@@ -109,6 +109,21 @@ def _k8s_job_name(manifest: dict) -> str | None:
     return metadata.get("name")
 
 
+def inject_k8s_job_id(manifest: dict, job_id: str) -> None:
+    containers = manifest["spec"]["template"]["spec"]["containers"]
+    for container in containers:
+        env = container.setdefault("env", [])
+        if not isinstance(env, list):
+            raise ValueError("Kubernetes Job container env must be a list when provided.")
+
+        for item in env:
+            if isinstance(item, dict) and item.get("name") == "JOB_ID":
+                item["value"] = job_id
+                break
+        else:
+            env.append({"name": "JOB_ID", "value": job_id})
+
+
 def build_k8s_job_dry_run_output(manifest: dict) -> dict:
     from src.mlops.k8s_job_executor import (
         get_k8s_job_name,
@@ -228,6 +243,7 @@ def main() -> None:
         from src.mlops.k8s_job_executor import validate_k8s_job_manifest
 
         validate_k8s_job_manifest(manifest)
+        inject_k8s_job_id(manifest, args.job_id)
         if args.dry_run:
             print(json.dumps(build_k8s_job_dry_run_output(manifest), ensure_ascii=False, indent=2))
             return
