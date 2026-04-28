@@ -11,7 +11,7 @@
     AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
     S3_BUCKET, S3_DATASET_KEY
     RABBITMQ_HOST, RABBITMQ_PORT, RABBITMQ_USERNAME, RABBITMQ_PASSWORD
-    JOB_ID, ADMIN_USER_ID
+    ADMIN_USER_ID
 """
 
 import os
@@ -56,11 +56,11 @@ RABBITMQ_PORT     = os.environ.get("RABBITMQ_PORT")
 RABBITMQ_USERNAME = os.environ.get("RABBITMQ_USERNAME")
 RABBITMQ_PASSWORD = os.environ.get("RABBITMQ_PASSWORD")
 
-JOB_ID        = os.environ.get("JOB_ID")
+# JOB_ID: 실행 시점 기반으로 자동 생성
+JOB_ID        = f"dataset-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
 ADMIN_USER_ID = os.environ.get("ADMIN_USER_ID")
 
 REQUIRED_ENV_VARS = (
-    "JOB_ID",
     "ADMIN_USER_ID",
     "AWS_ACCESS_KEY_ID",
     "AWS_SECRET_ACCESS_KEY",
@@ -76,9 +76,18 @@ REQUIRED_ENV_VARS = (
 )
 
 # RabbitMQ 상수
-EXCHANGE_SSE_FANOUT  = "x.sse.fanout"
+EXCHANGE_SSE_FANOUT   = "x.sse.fanout"
 QUEUE_TRAINING_RESULT = "q.2app.training"
-SSE_TYPE = "ai-training-updated"
+SSE_TYPE              = "ai-training-updated"
+
+
+# ============================================================
+# 환경변수 검증
+# ============================================================
+def validate_required_env():
+    missing = [name for name in REQUIRED_ENV_VARS if not os.environ.get(name)]
+    if missing:
+        raise RuntimeError(f"필수 환경변수가 누락되었습니다: {', '.join(missing)}")
 
 
 # ============================================================
@@ -95,12 +104,6 @@ def connect_rabbitmq():
     connection = pika.BlockingConnection(parameters)
     channel = connection.channel()
     return connection, channel
-
-
-def validate_required_env():
-    missing = [name for name in REQUIRED_ENV_VARS if not os.environ.get(name)]
-    if missing:
-        raise RuntimeError(f"필수 환경변수가 누락되었습니다: {', '.join(missing)}")
 
 
 # ============================================================
@@ -267,7 +270,7 @@ def main():
         # 5. 완료 이벤트 발행
         publish_training_event(
             channel,
-            status="completed",
+            status="COMPLETED",
             dataset_version=dataset_version
         )
 
@@ -276,7 +279,7 @@ def main():
     except Exception as e:
         logger.error(f"배치 실패: {e}", exc_info=True)
         publish_sse_log(channel, f"[ERROR] 데이터 수집 실패: {e}")
-        publish_training_event(channel, status="failed", error_message=str(e))
+        publish_training_event(channel, status="FAILED", error_message=str(e))
         raise
 
     finally:
