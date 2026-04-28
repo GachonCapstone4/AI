@@ -65,6 +65,62 @@ Gmail API
 
 ---
 
+## Kubernetes Job 실행 가이드
+
+이 가이드는 172.16.2.10 Linux EC2에서 dataset_batch.py 기반 Kubernetes Job을 실행하는 기준입니다. Kubernetes Job manifest는 --manifest-path로 전달합니다.
+
+dataset_batch.py는 이미지의 CMD를 통해 기본 실행됩니다. manifest에는 command와 args를 지정하지 않습니다.
+
+실행 파라미터는 컨테이너 환경변수로 주입합니다.
+
+    JOB_ID
+    ADMIN_USER_ID
+
+AWS Credential은 Kubernetes Secret job-secret에서 envFrom으로 주입합니다.
+
+    AWS_ACCESS_KEY_ID
+    AWS_SECRET_ACCESS_KEY
+
+성공과 실패는 Kubernetes Job exit code 기준입니다. 성공 시 exit 0과 q.2app.training completed 이벤트를 발행하고, 실패 시 exit 1과 q.2app.training failed 이벤트를 발행합니다. 로그는 stdout 기준이며 kubectl logs로 확인합니다. 관리자 화면 실시간 표시는 x.sse.fanout 연동 예정입니다.
+
+예시 manifest:
+
+    cat manifests/dataset-batch.yaml
+
+kubectl 권한 확인:
+
+    kubectl auth can-i create jobs -n admin
+    kubectl auth can-i get pods -n admin
+    kubectl auth can-i get pods/log -n admin
+    kubectl auth can-i delete jobs -n admin
+
+dry-run:
+
+    cd ~/Capstone_AI2
+    python -m launcher.run --job-id dataset-batch-001 --job-type k8s_job --dry-run --manifest-path manifests/dataset-batch.yaml
+
+실제 Job 생성:
+
+    cd ~/Capstone_AI2
+    python -m launcher.run --job-id dataset-batch-001 --job-type k8s_job --manifest-path manifests/dataset-batch.yaml
+
+상태 확인:
+
+    kubectl get jobs -n admin
+    kubectl get pods -n admin -l job-name=dataset-batch
+
+로그 확인:
+
+    kubectl logs -n admin job/dataset-batch
+
+삭제:
+
+    kubectl delete job -n admin dataset-batch
+
+manifest에 metadata.namespace가 없으면 런처가 기본값 admin을 manifest 내부에 채워 넣습니다. manifest에 namespace가 이미 있으면 덮어쓰지 않습니다.
+
+---
+
 ## 라이선스
 
 본 프로젝트는 캡스톤 디자인 학술 목적으로 제작되었습니다.

@@ -20,3 +20,5 @@ python-dotenv
 pika
 boto3
 dateparser
+kubernetes
+PyYAML

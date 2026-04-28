@@ -4,7 +4,9 @@ import argparse
 import json
 import os
 import re
+import sys
 from datetime import datetime, timezone
+from pathlib import Path
 
 
 DEFAULT_INSTANCE_TYPE = "ml.g4dn.xlarge"
@@ -46,11 +48,13 @@ def _join_s3_uri(bucket: str, *parts: str) -> str:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Launch backend-managed SageMaker jobs."
+        description="Launch backend-managed SageMaker or Kubernetes jobs."
     )
     parser.add_argument("--job-id", required=True)
-    parser.add_argument("--job-type", required=True, choices=["training"])
+    parser.add_argument("--job-type", required=True, choices=["training", "k8s_job"])
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--manifest-json")
+    parser.add_argument("--manifest-path")
     parser.add_argument("--role-arn", default=_env("SAGEMAKER_ROLE_ARN"))
     parser.add_argument("--training-image-uri", default=_env("TRAINING_IMAGE_URI"))
     parser.add_argument("--s3-bucket", default=_env("S3_BUCKET"))
@@ -75,6 +79,52 @@ def parse_args() -> argparse.Namespace:
         default=int(_env("SAGEMAKER_MAX_RUNTIME_SECONDS") or DEFAULT_MAX_RUNTIME_SECONDS),
     )
     return parser.parse_args()
+
+
+def load_k8s_job_manifest(args: argparse.Namespace) -> dict:
+    if args.manifest_json and args.manifest_path:
+        raise ValueError("Use only one of --manifest-json or --manifest-path.")
+    if not args.manifest_json and not args.manifest_path:
+        raise ValueError("Kubernetes Job execution requires --manifest-json or --manifest-path.")
+
+    if args.manifest_json:
+        manifest = json.loads(args.manifest_json)
+    else:
+        manifest_path = Path(args.manifest_path)
+        with manifest_path.open("r", encoding="utf-8") as file:
+            if manifest_path.suffix.lower() == ".json":
+                manifest = json.load(file)
+            else:
+                import yaml
+
+                manifest = yaml.safe_load(file)
+
+    if not isinstance(manifest, dict):
+        raise ValueError("Kubernetes Job manifest must resolve to a JSON/YAML object.")
+    return manifest
+
+
+def _k8s_job_name(manifest: dict) -> str | None:
+    metadata = manifest.get("metadata") or {}
+    return metadata.get("name")
+
+
+def build_k8s_job_dry_run_output(manifest: dict) -> dict:
+    from src.mlops.k8s_job_executor import (
+        get_k8s_job_name,
+        get_k8s_job_namespace,
+        validate_k8s_job_manifest,
+    )
+
+    validate_k8s_job_manifest(manifest)
+
+    return {
+        "job_type": "k8s_job",
+        "dry_run": True,
+        "k8s_job_name": get_k8s_job_name(manifest),
+        "namespace": get_k8s_job_namespace(manifest),
+        "manifest": manifest,
+    }
 
 
 def _missing_required(args: argparse.Namespace) -> list[str]:
@@ -172,6 +222,37 @@ def _create_training_job(config: dict, region: str) -> dict:
 
 def main() -> None:
     args = parse_args()
+
+    if args.job_type == "k8s_job":
+        manifest = load_k8s_job_manifest(args)
+        from src.mlops.k8s_job_executor import validate_k8s_job_manifest
+
+        validate_k8s_job_manifest(manifest)
+        if args.dry_run:
+            print(json.dumps(build_k8s_job_dry_run_output(manifest), ensure_ascii=False, indent=2))
+            return
+
+        try:
+            from src.mlops.k8s_job_executor import create_k8s_job
+
+            response = create_k8s_job(manifest)
+            job_name = getattr(getattr(response, "metadata", None), "name", None) or _k8s_job_name(manifest)
+            print(
+                json.dumps(
+                    {
+                        "job_type": args.job_type,
+                        "k8s_job_name": job_name,
+                        "namespace": (manifest.get("metadata") or {}).get("namespace") or "admin",
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+            return
+        except Exception as exc:
+            print(f"Failed to create Kubernetes Job: {exc}", file=sys.stderr)
+            sys.exit(1)
+
     if args.job_type != "training":
         raise ValueError(f"Unsupported job_type: {args.job_type}")
 

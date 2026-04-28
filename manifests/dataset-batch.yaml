@@ -1,0 +1,23 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dataset-batch
+spec:
+  ttlSecondsAfterFinished: 100
+  completions: 1
+  parallelism: 1
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: dataset-batch
+          image: 390403881443.dkr.ecr.ap-northeast-2.amazonaws.com/capstone/ecr:latest
+          env:
+            - name: JOB_ID
+              value: "dataset-batch-001"
+            - name: ADMIN_USER_ID
+              value: "54"
+          envFrom:
+            - secretRef:
+                name: job-secret
