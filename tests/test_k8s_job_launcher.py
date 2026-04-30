@@ -3,11 +3,15 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
 import pytest
 
 from launcher import run as launcher_run
 from src.mlops import k8s_job_executor
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _manifest(**overrides: object) -> dict:
@@ -222,6 +226,59 @@ def test_k8s_dry_run_output_reflects_default_namespace_in_manifest() -> None:
 
     assert output["namespace"] == "admin"
     assert output["manifest"]["metadata"]["namespace"] == "admin"
+
+
+def test_k8s_dry_run_injects_launcher_job_id(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    manifest = _manifest()
+    manifest["spec"]["template"]["spec"]["containers"][0]["env"] = [
+        {"name": "ADMIN_USER_ID", "value": "54"}
+    ]
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run.py",
+            "--job-id",
+            "dataset-batch-from-launcher",
+            "--job-type",
+            "k8s_job",
+            "--dry-run",
+            "--manifest-json",
+            json.dumps(manifest),
+        ],
+    )
+
+    launcher_run.main()
+    output = json.loads(capsys.readouterr().out)
+    env = output["manifest"]["spec"]["template"]["spec"]["containers"][0]["env"]
+
+    assert {"name": "JOB_ID", "value": "dataset-batch-from-launcher"} in env
+
+
+def test_k8s_job_id_injection_overwrites_existing_value() -> None:
+    manifest = _manifest()
+    manifest["spec"]["template"]["spec"]["containers"][0]["env"] = [
+        {"name": "JOB_ID", "value": "stale-job-id"},
+        {"name": "ADMIN_USER_ID", "value": "54"},
+    ]
+
+    launcher_run.inject_k8s_job_id(manifest, "fresh-job-id")
+
+    env = manifest["spec"]["template"]["spec"]["containers"][0]["env"]
+    job_id_entries = [item for item in env if item["name"] == "JOB_ID"]
+    assert job_id_entries == [{"name": "JOB_ID", "value": "fresh-job-id"}]
+
+
+def test_dataset_batch_manifest_uses_dataset_batch_image_tag() -> None:
+    yaml = pytest.importorskip("yaml")
+    manifest_path = REPO_ROOT / "manifests" / "dataset-batch.yaml"
+
+    manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+
+    image = manifest["spec"]["template"]["spec"]["containers"][0]["image"]
+    assert image == (
+        "390403881443.dkr.ecr.ap-northeast-2.amazonaws.com/capstone/ecr:dataset-batch"
+    )
 
 
 def test_training_dry_run_does_not_require_manifest(monkeypatch: pytest.MonkeyPatch, capsys) -> None:

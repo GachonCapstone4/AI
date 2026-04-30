@@ -2,9 +2,9 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY requirements.txt .
+COPY batch/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY dataset_batch.py .
+COPY batch/dataset_batch.py .
 
 CMD ["python", "dataset_batch.py"]

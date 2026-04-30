@@ -11,7 +11,7 @@
     AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
     S3_BUCKET, S3_DATASET_KEY
     RABBITMQ_HOST, RABBITMQ_PORT, RABBITMQ_USERNAME, RABBITMQ_PASSWORD
-    JOB_ID, ADMIN_USER_ID
+    ADMIN_USER_ID
 """
 
 import os
@@ -31,18 +31,19 @@ import pika
 # ============================================================
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s"
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    stream=sys.stdout,
 )
 logger = logging.getLogger(__name__)
 
 # ============================================================
 # 환경변수
 # ============================================================
-DB_HOST     = os.environ.get("DB_HOST", "192.168.3.10")
-DB_PORT     = int(os.environ.get("DB_PORT", "3306"))
-DB_USER     = os.environ.get("DB_USER", "capstone")
-DB_PASSWORD = os.environ.get("DB_PASSWORD", "capstone")
-DB_NAME     = os.environ.get("DB_NAME", "email_agent")
+DB_HOST     = os.environ.get("DB_HOST")
+DB_PORT     = os.environ.get("DB_PORT")
+DB_USER     = os.environ.get("DB_USER")
+DB_PASSWORD = os.environ.get("DB_PASSWORD")
+DB_NAME     = os.environ.get("DB_NAME")
 
 AWS_ACCESS_KEY_ID     = os.environ.get("AWS_ACCESS_KEY_ID")
 AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY")
@@ -50,18 +51,43 @@ AWS_REGION            = os.environ.get("AWS_REGION", "ap-northeast-2")
 S3_BUCKET             = os.environ.get("S3_BUCKET", "capstone-gachon")
 S3_DATASET_KEY        = os.environ.get("S3_DATASET_KEY", "dataset/dataset_new.csv")
 
-RABBITMQ_HOST     = os.environ.get("RABBITMQ_HOST", "192.168.2.20")
-RABBITMQ_PORT     = int(os.environ.get("RABBITMQ_PORT", "30672"))
-RABBITMQ_USERNAME = os.environ.get("RABBITMQ_USERNAME", "admin")
-RABBITMQ_PASSWORD = os.environ.get("RABBITMQ_PASSWORD", "admin1234!")
+RABBITMQ_HOST     = os.environ.get("RABBITMQ_HOST")
+RABBITMQ_PORT     = os.environ.get("RABBITMQ_PORT")
+RABBITMQ_USERNAME = os.environ.get("RABBITMQ_USERNAME")
+RABBITMQ_PASSWORD = os.environ.get("RABBITMQ_PASSWORD")
 
-JOB_ID        = os.environ.get("JOB_ID", "unknown-job")
-ADMIN_USER_ID = os.environ.get("ADMIN_USER_ID", "0")
+# JOB_ID: 실행 시점 기반으로 자동 생성
+JOB_ID        = f"dataset-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+ADMIN_USER_ID = os.environ.get("ADMIN_USER_ID")
+
+REQUIRED_ENV_VARS = (
+    "ADMIN_USER_ID",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "RABBITMQ_HOST",
+    "RABBITMQ_PORT",
+    "RABBITMQ_USERNAME",
+    "RABBITMQ_PASSWORD",
+    "DB_HOST",
+    "DB_PORT",
+    "DB_USER",
+    "DB_PASSWORD",
+    "DB_NAME",
+)
 
 # RabbitMQ 상수
-EXCHANGE_SSE_FANOUT  = "x.sse.fanout"
+EXCHANGE_SSE_FANOUT   = "x.sse.fanout"
 QUEUE_TRAINING_RESULT = "q.2app.training"
-SSE_TYPE = "ai-training-updated"
+SSE_TYPE              = "ai-training-updated"
+
+
+# ============================================================
+# 환경변수 검증
+# ============================================================
+def validate_required_env():
+    missing = [name for name in REQUIRED_ENV_VARS if not os.environ.get(name)]
+    if missing:
+        raise RuntimeError(f"필수 환경변수가 누락되었습니다: {', '.join(missing)}")
 
 
 # ============================================================
@@ -71,7 +97,7 @@ def connect_rabbitmq():
     credentials = pika.PlainCredentials(RABBITMQ_USERNAME, RABBITMQ_PASSWORD)
     parameters = pika.ConnectionParameters(
         host=RABBITMQ_HOST,
-        port=RABBITMQ_PORT,
+        port=int(RABBITMQ_PORT),
         credentials=credentials,
         heartbeat=60
     )
@@ -116,11 +142,16 @@ def publish_training_event(channel, status: str, error_message: str = None, data
         payload["error_message"] = error_message
 
     try:
+        channel.queue_declare(queue=QUEUE_TRAINING_RESULT, durable=True)
         channel.basic_publish(
             exchange="",
             routing_key=QUEUE_TRAINING_RESULT,
             body=json.dumps(payload, ensure_ascii=False),
-            properties=pika.BasicProperties(content_type="application/json")
+            properties=pika.BasicProperties(
+                content_type="application/json",
+                delivery_mode=2,
+            ),
+            mandatory=True,
         )
         logger.info(f"학습 이벤트 발행: status={status}")
     except Exception as e:
@@ -134,7 +165,7 @@ def fetch_training_data():
     logger.info("DB 연결 중...")
     conn = mysql.connector.connect(
         host=DB_HOST,
-        port=DB_PORT,
+        port=int(DB_PORT),
         user=DB_USER,
         password=DB_PASSWORD,
         database=DB_NAME,
@@ -202,6 +233,7 @@ def upload_to_s3(filepath: str):
 # 메인
 # ============================================================
 def main():
+    validate_required_env()
     logger.info(f"===== 데이터 수집 배치 시작 — job_id={JOB_ID} =====")
 
     # RabbitMQ 연결
@@ -238,7 +270,7 @@ def main():
         # 5. 완료 이벤트 발행
         publish_training_event(
             channel,
-            status="completed",
+            status="COMPLETED",
             dataset_version=dataset_version
         )
 
@@ -247,7 +279,7 @@ def main():
     except Exception as e:
         logger.error(f"배치 실패: {e}", exc_info=True)
         publish_sse_log(channel, f"[ERROR] 데이터 수집 실패: {e}")
-        publish_training_event(channel, status="failed", error_message=str(e))
+        publish_training_event(channel, status="FAILED", error_message=str(e))
         raise
 
     finally:
