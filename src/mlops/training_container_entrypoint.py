@@ -120,7 +120,10 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Print the execution plan without downloading data, training, validating, or uploading.",
     )
-    return parser.parse_args()
+    args, unknown = parser.parse_known_args()
+    if unknown:
+        print(f"[WARN] Ignored unknown args from SageMaker: {unknown}", flush=True)
+    return args
 
 
 def _validate_required_args(args: argparse.Namespace) -> None:
