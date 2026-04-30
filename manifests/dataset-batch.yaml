@@ -14,10 +14,8 @@ spec:
         - name: dataset-batch
           image: 390403881443.dkr.ecr.ap-northeast-2.amazonaws.com/capstone/ecr:dataset-batch
           env:
-            - name: JOB_ID
-              value: "dataset-batch-001"
             - name: ADMIN_USER_ID
-              value: "54"
+              value: "1"
           envFrom:
             - secretRef:
                 name: job-secret

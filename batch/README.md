@@ -9,7 +9,7 @@ DB에서 학습 데이터 추출 → CSV 생성 → S3 업로드 → SSE 로그 
 2. CSV 파일 생성 (emailId, from, subject, body, domain, intent)
 3. S3 업로드 (s3://capstone-gachon/dataset/dataset_new.csv)
 4. 진행 로그 → x.sse.fanout 발행
-5. 완료/실패 이벤트 → q.2app.training 발행
+5. 완료/실패 이벤트 → q.2app.training 발행 (status: COMPLETED / FAILED)
 ```
 
 ## 필수 환경변수
@@ -31,7 +31,7 @@ DB에서 학습 데이터 추출 → CSV 생성 → S3 업로드 → SSE 로그 
 | RABBITMQ_USERNAME | RabbitMQ 사용자 | admin |
 | RABBITMQ_PASSWORD | RabbitMQ 비밀번호 | admin1234! |
 | JOB_ID | 백엔드에서 생성한 job_id | 필수 |
-| ADMIN_USER_ID | 관리자 user_id (SSE용) | 0 |
+| ADMIN_USER_ID | 관리자 user_id (SSE용) | 1 |
 
 ## 로컬 테스트
 
@@ -39,7 +39,7 @@ DB에서 학습 데이터 추출 → CSV 생성 → S3 업로드 → SSE 로그 
 pip install -r requirements.txt
 
 export JOB_ID=test-job-001
-export ADMIN_USER_ID=54
+export ADMIN_USER_ID=1
 export AWS_ACCESS_KEY_ID=your_key
 export AWS_SECRET_ACCESS_KEY=your_secret
 

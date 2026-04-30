@@ -27,6 +27,10 @@ def _utc_timestamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
 
 
+def _default_k8s_job_id() -> str:
+    return f"dataset-batch-{_utc_timestamp()}"
+
+
 def _job_name(job_id: str) -> str:
     normalized = re.sub(r"[^A-Za-z0-9-]", "-", job_id).strip("-")
     normalized = re.sub(r"-+", "-", normalized)
@@ -50,7 +54,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Launch backend-managed SageMaker or Kubernetes jobs."
     )
-    parser.add_argument("--job-id", required=True)
+    parser.add_argument("--job-id")
     parser.add_argument("--job-type", required=True, choices=["training", "k8s_job"])
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--manifest-json")
@@ -78,7 +82,10 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=int(_env("SAGEMAKER_MAX_RUNTIME_SECONDS") or DEFAULT_MAX_RUNTIME_SECONDS),
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.job_type == "training" and not args.job_id:
+        parser.error("--job-id is required when --job-type training.")
+    return args
 
 
 def load_k8s_job_manifest(args: argparse.Namespace) -> dict:
@@ -122,6 +129,11 @@ def inject_k8s_job_id(manifest: dict, job_id: str) -> None:
                 break
         else:
             env.append({"name": "JOB_ID", "value": job_id})
+
+
+def inject_k8s_job_name(manifest: dict, job_id: str) -> None:
+    metadata = manifest.setdefault("metadata", {})
+    metadata["name"] = _job_name(job_id).lower()
 
 
 def build_k8s_job_dry_run_output(manifest: dict) -> dict:
@@ -239,11 +251,14 @@ def main() -> None:
     args = parse_args()
 
     if args.job_type == "k8s_job":
+        if not args.job_id:
+            args.job_id = _default_k8s_job_id()
         manifest = load_k8s_job_manifest(args)
         from src.mlops.k8s_job_executor import validate_k8s_job_manifest
 
         validate_k8s_job_manifest(manifest)
         inject_k8s_job_id(manifest, args.job_id)
+        inject_k8s_job_name(manifest, args.job_id)
         if args.dry_run:
             print(json.dumps(build_k8s_job_dry_run_output(manifest), ensure_ascii=False, indent=2))
             return

@@ -11,7 +11,7 @@
     AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
     S3_BUCKET, S3_DATASET_KEY
     RABBITMQ_HOST, RABBITMQ_PORT, RABBITMQ_USERNAME, RABBITMQ_PASSWORD
-    ADMIN_USER_ID
+    JOB_ID, ADMIN_USER_ID
 """
 
 import os
@@ -56,11 +56,11 @@ RABBITMQ_PORT     = os.environ.get("RABBITMQ_PORT")
 RABBITMQ_USERNAME = os.environ.get("RABBITMQ_USERNAME")
 RABBITMQ_PASSWORD = os.environ.get("RABBITMQ_PASSWORD")
 
-# JOB_ID: 실행 시점 기반으로 자동 생성
-JOB_ID        = f"dataset-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+JOB_ID        = os.environ.get("JOB_ID")
 ADMIN_USER_ID = os.environ.get("ADMIN_USER_ID")
 
 REQUIRED_ENV_VARS = (
+    "JOB_ID",
     "ADMIN_USER_ID",
     "AWS_ACCESS_KEY_ID",
     "AWS_SECRET_ACCESS_KEY",
@@ -75,6 +75,15 @@ REQUIRED_ENV_VARS = (
     "DB_NAME",
 )
 
+RABBITMQ_REQUIRED_ENV_VARS = (
+    "JOB_ID",
+    "ADMIN_USER_ID",
+    "RABBITMQ_HOST",
+    "RABBITMQ_PORT",
+    "RABBITMQ_USERNAME",
+    "RABBITMQ_PASSWORD",
+)
+
 # RabbitMQ 상수
 EXCHANGE_SSE_FANOUT   = "x.sse.fanout"
 QUEUE_TRAINING_RESULT = "q.2app.training"
@@ -84,8 +93,8 @@ SSE_TYPE              = "ai-training-updated"
 # ============================================================
 # 환경변수 검증
 # ============================================================
-def validate_required_env():
-    missing = [name for name in REQUIRED_ENV_VARS if not os.environ.get(name)]
+def validate_required_env(names=REQUIRED_ENV_VARS):
+    missing = [name for name in names if not os.environ.get(name)]
     if missing:
         raise RuntimeError(f"필수 환경변수가 누락되었습니다: {', '.join(missing)}")
 
@@ -233,13 +242,14 @@ def upload_to_s3(filepath: str):
 # 메인
 # ============================================================
 def main():
-    validate_required_env()
     logger.info(f"===== 데이터 수집 배치 시작 — job_id={JOB_ID} =====")
 
-    # RabbitMQ 연결
+    validate_required_env(RABBITMQ_REQUIRED_ENV_VARS)
     connection, channel = connect_rabbitmq()
 
     try:
+        validate_required_env()
+
         # 1. DB 데이터 추출
         publish_sse_log(channel, "[INFO] DB 데이터 추출 시작")
         rows = fetch_training_data()

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
+import re
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -253,6 +256,47 @@ def test_k8s_dry_run_injects_launcher_job_id(monkeypatch: pytest.MonkeyPatch, ca
     env = output["manifest"]["spec"]["template"]["spec"]["containers"][0]["env"]
 
     assert {"name": "JOB_ID", "value": "dataset-batch-from-launcher"} in env
+    assert output["k8s_job_name"] == "dataset-batch-from-launcher"
+
+
+def test_k8s_dry_run_generates_job_id_when_missing(
+    monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    manifest = _manifest()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run.py",
+            "--job-type",
+            "k8s_job",
+            "--dry-run",
+            "--manifest-json",
+            json.dumps(manifest),
+        ],
+    )
+
+    launcher_run.main()
+    output = json.loads(capsys.readouterr().out)
+    env = output["manifest"]["spec"]["template"]["spec"]["containers"][0]["env"]
+    job_id = next(item["value"] for item in env if item["name"] == "JOB_ID")
+
+    assert re.fullmatch(r"dataset-batch-\d{14}", job_id)
+    assert output["k8s_job_name"] == job_id
+    assert output["manifest"]["metadata"]["name"] == job_id
+
+
+def test_training_requires_job_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["run.py", "--job-type", "training", "--dry-run"],
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        launcher_run.parse_args()
+
+    assert exc_info.value.code == 2
 
 
 def test_k8s_job_id_injection_overwrites_existing_value() -> None:
@@ -279,6 +323,50 @@ def test_dataset_batch_manifest_uses_dataset_batch_image_tag() -> None:
     assert image == (
         "390403881443.dkr.ecr.ap-northeast-2.amazonaws.com/capstone/ecr:dataset-batch"
     )
+
+
+def test_dataset_batch_manifest_uses_admin_user_id_1() -> None:
+    yaml = pytest.importorskip("yaml")
+    manifest_path = REPO_ROOT / "manifests" / "dataset-batch.yaml"
+
+    manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    env = manifest["spec"]["template"]["spec"]["containers"][0]["env"]
+
+    assert {"name": "ADMIN_USER_ID", "value": "1"} in env
+
+
+def test_dataset_batch_training_event_uses_uppercase_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(sys.modules, "boto3", types.SimpleNamespace())
+    monkeypatch.setitem(sys.modules, "mysql", types.SimpleNamespace())
+    monkeypatch.setitem(sys.modules, "mysql.connector", types.SimpleNamespace())
+    monkeypatch.setitem(sys.modules, "pika", types.SimpleNamespace())
+    dataset_batch = importlib.import_module("batch.dataset_batch")
+
+    monkeypatch.setattr(dataset_batch, "JOB_ID", "dataset-batch-test")
+    published = []
+
+    class FakeProperties:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    class FakePika:
+        BasicProperties = FakeProperties
+
+    class FakeChannel:
+        def queue_declare(self, **kwargs):
+            pass
+
+        def basic_publish(self, **kwargs):
+            published.append(kwargs)
+
+    monkeypatch.setattr(dataset_batch, "pika", FakePika)
+
+    dataset_batch.publish_training_event(FakeChannel(), "COMPLETED", dataset_version="v1")
+    dataset_batch.publish_training_event(FakeChannel(), "FAILED", error_message="boom")
+
+    payloads = [json.loads(item["body"]) for item in published]
+    assert payloads[0]["status"] == "COMPLETED"
+    assert payloads[1]["status"] == "FAILED"
 
 
 def test_training_dry_run_does_not_require_manifest(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
