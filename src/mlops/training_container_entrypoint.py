@@ -75,6 +75,23 @@ def _build_latest_pointer_payload(
     }
 
 
+def safe_publish_training_status(job_id: str, status: str, **kwargs) -> None:
+    try:
+        publish_training_status(job_id, status, **kwargs)
+    except Exception as exc:
+        print(
+            f"[WARN] Failed to publish training status '{status}' for job_id={job_id}: {exc}",
+            flush=True,
+        )
+
+
+def safe_publish_sse_log(message: str) -> None:
+    try:
+        publish_sse_log(message)
+    except Exception as exc:
+        print(f"[WARN] Failed to publish SSE log: {exc}", flush=True)
+
+
 def _resolve_dataset_path(dataset_path: Path | None, dataset_s3_uri: str | None) -> Path:
     if dataset_path is not None:
         return dataset_path
@@ -190,16 +207,16 @@ def run_container_training(args: argparse.Namespace) -> dict:
     artifact_s3_uri = f"s3://{args.s3_bucket}/{artifact_prefix}/"
 
     try:
-        publish_training_status(args.job_id, "running")
+        safe_publish_training_status(args.job_id, "running")
 
         dataset_download = None
         if args.dataset_s3_uri:
-            publish_sse_log("[INFO] dataset 다운로드 시작")
+            safe_publish_sse_log("[INFO] dataset 다운로드 시작")
             dataset_download = _download_dataset_from_s3(args.dataset_s3_uri, dataset_path)
         else:
-            publish_sse_log("[INFO] 로컬 dataset 사용")
+            safe_publish_sse_log("[INFO] 로컬 dataset 사용")
 
-        publish_sse_log("[INFO] SBERT 학습 시작")
+        safe_publish_sse_log("[INFO] SBERT 학습 시작")
 
         from .training_entrypoint import run_training
 
@@ -209,17 +226,17 @@ def run_container_training(args: argparse.Namespace) -> dict:
             model_version=args.model_version,
         )
 
-        publish_sse_log("[INFO] classifier 학습 완료")
+        safe_publish_sse_log("[INFO] classifier 학습 완료")
         validation = validate_model_artifact_dir(args.output_dir)
 
-        publish_sse_log("[INFO] 모델 업로드")
+        safe_publish_sse_log("[INFO] 모델 업로드")
         upload_result = upload_directory_to_s3(
             local_dir=args.output_dir,
             bucket=args.s3_bucket,
             prefix=artifact_prefix,
         )
 
-        publish_sse_log("[INFO] latest.json 갱신")
+        safe_publish_sse_log("[INFO] latest.json 갱신")
         latest_pointer_payload = _build_latest_pointer_payload(
             model_version=args.model_version,
             job_id=args.job_id,
@@ -232,8 +249,8 @@ def run_container_training(args: argparse.Namespace) -> dict:
             key=LATEST_POINTER_KEY,
         )
 
-        publish_sse_log("[INFO] 학습 완료")
-        publish_training_status(
+        safe_publish_sse_log("[INFO] 학습 완료")
+        safe_publish_training_status(
             args.job_id,
             "completed",
             model_version=args.model_version,
@@ -254,8 +271,8 @@ def run_container_training(args: argparse.Namespace) -> dict:
             "s3_artifact_uri": artifact_s3_uri,
         }
     except Exception as exc:
-        publish_training_status(args.job_id, "failed", error_message=str(exc))
-        publish_sse_log(f"[ERROR] {exc}")
+        safe_publish_training_status(args.job_id, "failed", error_message=str(exc))
+        safe_publish_sse_log(f"[ERROR] {exc}")
         raise
 
 

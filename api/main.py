@@ -8,7 +8,6 @@ from fastapi import FastAPI
 # src/ 디렉토리를 import 경로에 추가
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from inference import load_classify_pipeline, predict_email
 from model_manager import ModelManager
 from api.routers import classify, deployment, summarize
 from messaging.consumer_classify import ClassifyConsumerRunner
@@ -27,11 +26,12 @@ async def lifespan(app: FastAPI):
         f"llm_provider={resolved_llm.provider}, model_source={settings.MODEL_SOURCE}"
     )
 
-    print("[Startup] classify pipeline loading...")
-    classify_model = load_classify_pipeline()
-    runtime = classify_model.get("runtime") or {}
+    print("[Startup] model manager loading...")
+    model_manager = ModelManager()
+    initial = model_manager.load_initial_model()
+    runtime = initial.get("runtime") or {}
     log.info(
-        "classify_pipeline_ready",
+        "model_manager_ready",
         model_source=runtime.get("model_source"),
         active_model_version=runtime.get("active_model_version"),
         metadata_model_version=runtime.get("metadata_model_version"),
@@ -39,17 +39,11 @@ async def lifespan(app: FastAPI):
         loaded_domain_model_path=runtime.get("loaded_domain_model_path"),
         loaded_intent_model_path=runtime.get("loaded_intent_model_path"),
     )
-    app.state.classify_pipeline = {
-        "model": classify_model,
-        "predict": predict_email,
-    }
-    model_manager = ModelManager()
-    model_manager.load_initial_model(existing_bundle=classify_model)
     app.state.model_manager = model_manager
-    print("[Startup] classify pipeline ready")
+    print("[Startup] model manager ready")
 
     print("[Startup] classify consumer starting...")
-    consumer_runner = ClassifyConsumerRunner(app.state.classify_pipeline)
+    consumer_runner = ClassifyConsumerRunner(app.state.model_manager)
     consumer_runner.start()
     app.state.classify_consumer_runner = consumer_runner
     await asyncio.sleep(0)

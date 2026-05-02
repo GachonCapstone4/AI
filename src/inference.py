@@ -1,12 +1,19 @@
 import numpy as np
 
 from config import CONFIDENCE_THRESHOLD
-from model_loader import load_classification_pipeline, resolve_runtime_model_paths
+from settings import get_settings
+from model_loader import (
+    load_classification_pipeline,
+    load_latest_model_version,
+    load_standard_model_bundle,
+)
 
 
 def load_classify_pipeline() -> dict:
-    paths = resolve_runtime_model_paths()
-    print(f"[load_classify_pipeline] resolved_sbert_dir={paths.sbert_dir}")
+    settings = get_settings()
+    if settings.MODEL_SOURCE == "s3":
+        version = settings.ACTIVE_MODEL_VERSION or load_latest_model_version()
+        return load_standard_model_bundle(version)
     return load_classification_pipeline()
 
 

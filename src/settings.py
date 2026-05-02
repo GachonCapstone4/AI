@@ -86,11 +86,8 @@ class Settings(BaseModel):
             if self.OPENAI_BASE_URL and not self.OPENAI_BASE_URL.startswith(("http://", "https://")):
                 raise ValueError("OPENAI_BASE_URL must start with http:// or https://")
 
-        if self.MODEL_SOURCE == "s3":
-            if not self.S3_MODEL_BUCKET:
-                raise ValueError("S3_MODEL_BUCKET is required when MODEL_SOURCE=s3")
-            if not self.ACTIVE_MODEL_VERSION:
-                raise ValueError("ACTIVE_MODEL_VERSION is required when MODEL_SOURCE=s3")
+        if self.MODEL_SOURCE == "s3" and not self.S3_MODEL_BUCKET:
+            raise ValueError("S3_MODEL_BUCKET is required when MODEL_SOURCE=s3")
 
         return self
 

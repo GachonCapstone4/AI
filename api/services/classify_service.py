@@ -16,7 +16,22 @@ def _preprocess(subject: str, body: str) -> str:
     return f"{subject}\n{body}".strip()
 
 
-def run_classify(payload: ClassifyRequest, pipeline: dict) -> ClassifyResponse:
+def _bundle_from_runtime(runtime) -> dict:
+    if hasattr(runtime, "current_bundle"):
+        bundle = runtime.current_bundle
+        if bundle is None:
+            raise RuntimeError("Current model bundle is not loaded.")
+        return bundle
+    return runtime["model"]
+
+
+def _predict(runtime, email_text: str) -> dict:
+    if hasattr(runtime, "predict"):
+        return runtime.predict(email_text)
+    return runtime["predict"](email_text=email_text, pipeline=runtime["model"])
+
+
+def run_classify(payload: ClassifyRequest, runtime) -> ClassifyResponse:
     """
     classify 코어 경로 전용 오케스트레이션.
     AI 서버의 안정적이고 공식적인 계약은 이 진입점을 기준으로 유지한다.
@@ -24,30 +39,31 @@ def run_classify(payload: ClassifyRequest, pipeline: dict) -> ClassifyResponse:
     Parameters
     ----------
     payload  : ClassifyRequest (pydantic)
-    pipeline : {"model": {...sbert/clf...}, "predict": predict_email}
+    runtime : ModelManager, or the legacy {"model": ..., "predict": ...} shape in tests.
 
     Returns
     -------
     ClassifyResponse (pydantic)
     """
     email_text = _preprocess(payload.subject, payload.body_clean)
+    if not email_text:
+        raise ValueError("subject and body/body_clean cannot both be empty.")
+
+    bundle = _bundle_from_runtime(runtime)
 
     # 1. 도메인 / 인텐트 분류
-    result = pipeline["predict"](
-        email_text=email_text,
-        pipeline=pipeline["model"],
-    )
-    runtime = pipeline["model"].get("runtime") or {}
+    result = _predict(runtime, email_text)
+    bundle_runtime = bundle.get("runtime") or {}
     log.info(
         "classification_result",
         outbox_id=payload.outbox_id,
         email_id=payload.email_id,
-        loaded_sbert_path=runtime.get("loaded_sbert_path"),
-        loaded_domain_model_path=runtime.get("loaded_domain_model_path"),
-        loaded_intent_model_path=runtime.get("loaded_intent_model_path"),
-        model_source=runtime.get("model_source"),
-        active_model_version=runtime.get("active_model_version"),
-        metadata_model_version=runtime.get("metadata_model_version"),
+        loaded_sbert_path=bundle_runtime.get("loaded_sbert_path"),
+        loaded_domain_model_path=bundle_runtime.get("loaded_domain_model_path"),
+        loaded_intent_model_path=bundle_runtime.get("loaded_intent_model_path"),
+        model_source=bundle_runtime.get("model_source"),
+        active_model_version=bundle_runtime.get("active_model_version"),
+        metadata_model_version=bundle_runtime.get("metadata_model_version"),
         domain_pred=result.get("domain"),
         domain_confidence=result.get("domain_confidence"),
         intent_pred=result.get("intent"),
@@ -91,7 +107,7 @@ def run_classify(payload: ClassifyRequest, pipeline: dict) -> ClassifyResponse:
 
     # 3. SBERT 임베딩 — summary 비거나 너무 짧으면 email_text fallback
     embed_text = summary if summary and len(summary) >= MIN_SUMMARY_LENGTH else email_text
-    embedding = pipeline["model"]["sbert"].encode(
+    embedding = bundle["sbert"].encode(
         [embed_text], normalize_embeddings=True
     )[0].tolist()
 

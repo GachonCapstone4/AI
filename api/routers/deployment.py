@@ -1,16 +1,21 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from src.mlops.training_events import publish_sse_log
 
 
-router = APIRouter()
+router = APIRouter(prefix="/deployment")
 
 
 class PreloadRequest(BaseModel):
-    model_version: str
+    model_config = ConfigDict(populate_by_name=True)
+
+    model_version: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("model_version", "modelVersion"),
+    )
 
 
 def _get_model_manager(request: Request):
@@ -35,7 +40,8 @@ async def preload_model(payload: PreloadRequest, request: Request):
         _safe_publish_sse_log("[INFO] 모델 로딩 완료")
         return {
             "status": result["status"],
-            "model_version": result["model_version"],
+            "modelVersion": result["model_version"],
+            "artifactS3Uri": result["artifact_s3_uri"],
         }
     except Exception as exc:
         _safe_publish_sse_log(f"[ERROR] {exc}")
@@ -49,8 +55,8 @@ async def validate_model(request: Request):
         _safe_publish_sse_log("[INFO] 검증 성공")
         return {
             "status": result["status"],
-            "model_version": result["model_version"],
-            "predictions": result["predictions"],
+            "modelVersion": result["model_version"],
+            "samples": result["samples"],
         }
     except Exception as exc:
         _safe_publish_sse_log(f"[ERROR] {exc}")
@@ -63,13 +69,10 @@ async def switch_model(request: Request):
         manager = _get_model_manager(request)
         _safe_publish_sse_log("[INFO] active model 전환")
         result = manager.switch()
-        classify_pipeline = getattr(request.app.state, "classify_pipeline", None)
-        if classify_pipeline is not None:
-            classify_pipeline["model"] = manager.current_bundle
         _safe_publish_sse_log("[INFO] 배포 완료")
         return {
             "status": result["status"],
-            "model_version": result["model_version"],
+            "activeModelVersion": result["model_version"],
         }
     except Exception as exc:
         _safe_publish_sse_log(f"[ERROR] {exc}")

@@ -29,7 +29,6 @@ from api.schemas import ClassifyRequest, ResponseMeta
 from api.services.classify_service import run_classify
 from messaging.publisher import AI2APP_EXCHANGE, enable_delivery_confirms, publish
 from messaging.structured_log import get_logger
-from inference import load_classify_pipeline, predict_email
 from src.settings import get_settings
 
 # ── 설정 ─────────────────────────────────────────────────────
@@ -102,6 +101,9 @@ def _build_backend_classify_payload(result) -> dict:
 
 
 def _resolve_model_version(pipeline: dict) -> str:
+    if hasattr(pipeline, "current_model_version"):
+        return pipeline.current_model_version or "unknown"
+
     settings_version = get_settings().ACTIVE_MODEL_VERSION
     if settings_version:
         return settings_version
@@ -429,12 +431,15 @@ def _callback(ch, method, properties, body):
 # ── 메인 ─────────────────────────────────────────────────────
 def main():
     global _classify_pipeline
-    log.info("pipeline_loading", queue=CONSUME_QUEUE, path_role="classify-core")
-    model = load_classify_pipeline()
-    _classify_pipeline = {"model": model, "predict": predict_email}
-    runtime = model.get("runtime") or {}
+    from src.model_manager import ModelManager
+
+    log.info("model_manager_loading", queue=CONSUME_QUEUE, path_role="classify-core")
+    model_manager = ModelManager()
+    initial = model_manager.load_initial_model()
+    _classify_pipeline = model_manager
+    runtime = initial.get("runtime") or {}
     log.info(
-        "pipeline_ready",
+        "model_manager_ready",
         queue=CONSUME_QUEUE,
         path_role="classify-core",
         model_source=runtime.get("model_source"),

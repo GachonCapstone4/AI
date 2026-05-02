@@ -12,7 +12,7 @@ class ClassifyRequest(BaseModel):
     sender_email: str = Field(validation_alias=AliasChoices("sender_email", "senderEmail"))
     sender_name: str = Field(validation_alias=AliasChoices("sender_name", "senderName"))
     subject: str
-    body_clean: str = Field(validation_alias=AliasChoices("body_clean", "bodyClean"))
+    body_clean: str = Field(validation_alias=AliasChoices("body_clean", "bodyClean", "body"))
     received_at: Any = Field(validation_alias=AliasChoices("received_at", "receivedAt"))
 
 

@@ -1,6 +1,5 @@
 # ============================================================
-# pytest 공통 fixture — 경로별 pipeline mock
-# lifespan 우회: app.state.classify_pipeline 을 직접 주입
+# pytest 공통 fixture — lifespan 우회: app.state.model_manager 직접 주입
 # ============================================================
 
 import pytest
@@ -12,19 +11,25 @@ from fastapi import FastAPI
 from api.routers import classify, summarize
 
 
-def _make_mock_classify_pipeline():
+def _make_mock_model_manager():
     sbert = MagicMock()
     # encode() → numpy array (shape: (1, 3))  → [0].tolist() 가 동작해야 함
     sbert.encode.return_value = np.array([[0.1, 0.2, 0.3]])
 
-    return {
-        "model": {"sbert": sbert},
-        "predict": lambda email_text, pipeline: {
-            "domain": "업무",
-            "intent": "문의",
-            "confidence_score": 0.91,
-        },
-    }
+    class MockModelManager:
+        current_model_version = "test-model"
+
+        def __init__(self):
+            self.current_bundle = {"sbert": sbert, "runtime": {"active_model_version": "test-model"}}
+
+        def predict(self, _email_text):
+            return {
+                "domain": "업무",
+                "intent": "문의",
+                "confidence_score": 0.91,
+            }
+
+    return MockModelManager()
 
 @pytest.fixture
 def app_client():
@@ -32,7 +37,7 @@ def app_client():
     test_app = FastAPI()
     test_app.include_router(classify.router)
     test_app.include_router(summarize.router)
-    test_app.state.classify_pipeline = _make_mock_classify_pipeline()
+    test_app.state.model_manager = _make_mock_model_manager()
 
     with TestClient(test_app) as client:
         yield client

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -11,13 +14,15 @@ from settings import get_settings
 from messaging.structured_log import get_logger
 
 
-OPTIONAL_ARTIFACTS = ("label_mapping.json", "metadata.json")
-STANDARD_OPTIONAL_ARTIFACTS = ("metrics.json", "config.json", "label_mapping.json")
 STANDARD_REQUIRED_FILES = (
+    "sbert",
     "domain_model.pkl",
     "intent_model.pkl",
+    "label_mapping.json",
+    "metrics.json",
+    "config.json",
 )
-LATEST_POINTER_KEY = "models/latest.json"
+COMPLETE_MARKER = ".complete"
 REQUIRED_S3_FILES = (
     "domain_classifier.pkl",
     "intent_classifiers.pkl",
@@ -115,6 +120,7 @@ def _validate_required_local_paths(paths: RuntimeModelPaths) -> None:
 
 
 def _resolve_local_model_paths() -> RuntimeModelPaths:
+    """Resolve legacy local artifact names for dev/local mode only."""
     from config import (
         DOMAIN_CLF_PATH,
         DOMAIN_LE_PATH,
@@ -137,77 +143,24 @@ def _resolve_local_model_paths() -> RuntimeModelPaths:
 
 
 def _build_s3_runtime_paths() -> RuntimeModelPaths:
-    settings = get_settings()
-    base = Path(settings.MODEL_LOCAL_CACHE_DIR) / settings.ACTIVE_MODEL_VERSION
-
-    return RuntimeModelPaths(
-        sbert_dir=base / "sbert",
-        sbert_model_path=base / "sbert" / "model.safetensors",
-        sbert_tokenizer_path=base / "sbert" / "tokenizer.json",
-        domain_clf_path=base / "domain_classifier.pkl",
-        domain_le_path=base / "domain_label_encoder.pkl",
-        intent_clf_path=base / "intent_classifiers.pkl",
-        intent_le_path=base / "intent_label_encoders.pkl",
-        label_mapping_path=base / "label_mapping.json",
-        metadata_path=base / "metadata.json",
+    raise RuntimeError(
+        "Legacy S3 runtime path resolver is disabled. "
+        "MODEL_SOURCE=s3 must use latest.json/ACTIVE_MODEL_VERSION with standard SageMaker artifacts."
     )
 
 
 def _resolve_s3_model_paths() -> RuntimeModelPaths:
-    settings = get_settings()
-    cache = S3ArtifactCache(region_name=settings.AWS_REGION)
-
-    paths = _build_s3_runtime_paths()
-    cache_root = paths.domain_clf_path.parent
-    base_prefix = f"{settings.S3_MODEL_PREFIX.rstrip('/')}/{settings.ACTIVE_MODEL_VERSION}"
-    sbert_prefix = f"{base_prefix}/sbert/"
-
-    if not all((paths.sbert_dir / filename).exists() for filename in REQUIRED_SBERT_FILES):
-        cache.download_prefix(
-            bucket=settings.S3_MODEL_BUCKET or "",
-            prefix=sbert_prefix,
-            target_dir=paths.sbert_dir,
-        )
-
-    required_files = {
-        "domain_classifier.pkl": paths.domain_clf_path,
-        "domain_label_encoder.pkl": paths.domain_le_path,
-        "intent_classifiers.pkl": paths.intent_clf_path,
-        "intent_label_encoders.pkl": paths.intent_le_path,
-    }
-    for filename, target_path in required_files.items():
-        cache.download_file_if_missing(
-            bucket=settings.S3_MODEL_BUCKET or "",
-            key=f"{base_prefix}/{filename}",
-            target_path=target_path,
-        )
-
-    for optional_name in OPTIONAL_ARTIFACTS:
-        key = f"{base_prefix}/{optional_name}"
-        target = cache_root / optional_name
-        if cache.exists(bucket=settings.S3_MODEL_BUCKET or "", key=key):
-            cache.download_file_if_missing(
-                bucket=settings.S3_MODEL_BUCKET or "",
-                key=key,
-                target_path=target,
-            )
-
-    _validate_required_local_paths(paths)
-    return paths
+    return _build_s3_runtime_paths()
 
 
 def resolve_runtime_model_paths() -> RuntimeModelPaths:
     settings = get_settings()
     if settings.MODEL_SOURCE == "s3":
-        base_path = Path(settings.MODEL_LOCAL_CACHE_DIR) / (settings.ACTIVE_MODEL_VERSION or "unknown")
-        log.info(
-            "runtime_model_paths_resolved",
-            model_source="s3",
-            active_model_version=settings.ACTIVE_MODEL_VERSION,
-            model_cache_base=str(base_path),
+        raise RuntimeError(
+            "resolve_runtime_model_paths is local/dev-only. "
+            "MODEL_SOURCE=s3 startup must call load_standard_model_bundle."
         )
-        return _resolve_s3_model_paths()
-    log.info("runtime_model_paths_resolved", model_source="local")
+    log.info("runtime_model_paths_resolved", model_source="local", artifact_format="legacy_dev")
     return _resolve_local_model_paths()
 
 
@@ -216,53 +169,98 @@ def _model_cache_dir_for_version(version: str) -> Path:
     return Path(settings.MODEL_LOCAL_CACHE_DIR) / version
 
 
+def parse_latest_model_version(payload: dict) -> str:
+    if not isinstance(payload, dict):
+        raise RuntimeError("models/latest.json must be a JSON object.")
+
+    snake_version = payload.get("model_version")
+    camel_version = payload.get("modelVersion")
+    if snake_version and camel_version and snake_version != camel_version:
+        raise RuntimeError(
+            "models/latest.json contains conflicting model_version and modelVersion values."
+        )
+
+    model_version = snake_version or camel_version
+    if not isinstance(model_version, str) or not model_version.strip():
+        raise RuntimeError(
+            "models/latest.json must contain a non-empty model_version "
+            "(modelVersion is accepted only as a compatibility alias)."
+        )
+    return model_version.strip().strip("/")
+
+
 def load_latest_model_version() -> str:
     settings = get_settings()
     if not settings.S3_MODEL_BUCKET:
         raise RuntimeError("S3_MODEL_BUCKET is required to load models/latest.json")
 
     cache = S3ArtifactCache(region_name=settings.AWS_REGION)
+    latest_key = f"{settings.S3_MODEL_PREFIX.rstrip('/')}/latest.json"
     response = cache._get_client().get_object(
         Bucket=settings.S3_MODEL_BUCKET,
-        Key=LATEST_POINTER_KEY,
+        Key=latest_key,
     )
     payload = json.loads(response["Body"].read().decode("utf-8"))
-    model_version = payload.get("model_version")
-    if not isinstance(model_version, str) or not model_version:
-        raise RuntimeError("models/latest.json does not contain a valid model_version")
-    return model_version
+    return parse_latest_model_version(payload)
 
 
 def ensure_standard_model_artifact_cached(version: str) -> Path:
     settings = get_settings()
     artifact_dir = _model_cache_dir_for_version(version)
+    complete_marker = artifact_dir / COMPLETE_MARKER
 
     if settings.MODEL_SOURCE == "s3":
+        if complete_marker.exists():
+            _validate_standard_artifact_dir(artifact_dir)
+            return artifact_dir
+
+        cache_root = artifact_dir.parent
+        cache_root.mkdir(parents=True, exist_ok=True)
+        tmp_dir = cache_root / f"{version}.tmp-{uuid.uuid4().hex}"
         cache = S3ArtifactCache(region_name=settings.AWS_REGION)
         base_prefix = f"{settings.S3_MODEL_PREFIX.rstrip('/')}/{version}"
-        cache.download_prefix(
-            bucket=settings.S3_MODEL_BUCKET or "",
-            prefix=f"{base_prefix}/",
-            target_dir=artifact_dir,
-        )
+        try:
+            if tmp_dir.exists():
+                shutil.rmtree(tmp_dir)
+            cache.download_prefix(
+                bucket=settings.S3_MODEL_BUCKET or "",
+                prefix=f"{base_prefix}/",
+                target_dir=tmp_dir,
+            )
+            _validate_standard_artifact_dir(tmp_dir)
+            (tmp_dir / COMPLETE_MARKER).write_text("ok\n", encoding="utf-8")
 
-    missing = [
-        path
-        for path in (
-            artifact_dir / "sbert",
-            artifact_dir / "domain_model.pkl",
-            artifact_dir / "intent_model.pkl",
-            artifact_dir / "metrics.json",
-            artifact_dir / "config.json",
-            artifact_dir / "label_mapping.json",
-        )
-        if not path.exists()
-    ]
+            if complete_marker.exists():
+                _validate_standard_artifact_dir(artifact_dir)
+                return artifact_dir
+            if artifact_dir.exists():
+                shutil.rmtree(artifact_dir)
+            os.replace(tmp_dir, artifact_dir)
+        finally:
+            if tmp_dir.exists():
+                shutil.rmtree(tmp_dir)
+
+    _validate_standard_artifact_dir(artifact_dir)
+    return artifact_dir
+
+
+def _validate_standard_artifact_dir(artifact_dir: Path) -> None:
+    missing = []
+    for name in STANDARD_REQUIRED_FILES:
+        path = artifact_dir / name
+        if not path.exists():
+            missing.append(path)
+        elif name == "sbert" and not path.is_dir():
+            missing.append(path)
+        elif name != "sbert" and not path.is_file():
+            missing.append(path)
+    for filename in REQUIRED_SBERT_FILES:
+        path = artifact_dir / "sbert" / filename
+        if not path.exists() or not path.is_file():
+            missing.append(path)
     if missing:
         missing_items = ", ".join(str(path) for path in missing)
         raise RuntimeError(f"Standard model artifacts are missing: {missing_items}")
-
-    return artifact_dir
 
 
 def load_standard_model_bundle(version: str) -> dict:
@@ -313,6 +311,11 @@ def load_standard_model_bundle(version: str) -> dict:
 
 def load_classification_pipeline() -> dict:
     settings = get_settings()
+    if settings.MODEL_SOURCE == "s3":
+        raise RuntimeError(
+            "load_classification_pipeline is local/dev-only and uses legacy artifact names. "
+            "Use load_standard_model_bundle for MODEL_SOURCE=s3."
+        )
     paths = resolve_runtime_model_paths()
 
     pipeline = {

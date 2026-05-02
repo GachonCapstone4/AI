@@ -122,3 +122,8 @@ class TestClassifyValidation:
         payload = {k: v for k, v in BASE_PAYLOAD.items() if k != "body_clean"}
         resp = app_client.post("/classify", json=payload)
         assert resp.status_code == 422
+
+    def test_empty_subject_and_body_returns_400(self, app_client):
+        payload = {**BASE_PAYLOAD, "subject": "", "body_clean": ""}
+        resp = app_client.post("/classify", json=payload)
+        assert resp.status_code == 400
