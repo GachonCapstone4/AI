@@ -5,7 +5,7 @@
 # 목적
 # ----
 #   Docker로 띄운 로컬 RabbitMQ에 테스트용 리소스를 1회 생성한다.
-#   consumer_classify.py / consumer_training.py 실행 전에 한 번만 돌리면 된다.
+#   consumer_classify.py 실행 전에 한 번만 돌리면 된다.
 #
 # 주의
 # ----
@@ -36,13 +36,15 @@ RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://admin:admin1234!@192.168.2.20:3
 EXCHANGES = [
     ("x.app2ai.direct", "direct"),   # App → AI
     ("x.ai2app.direct", "direct"),   # AI → App
+    ("x.sse.fanout", "fanout"),      # Training/SSE logs
 ]
 
 # (queue_name, exchange, binding_key)
 QUEUES = [
     ("q.2ai.classify",  "x.app2ai.direct", "2ai.classify"),
-    ("q.2ai.training",  "x.app2ai.direct", "q.2ai.training"),
     ("q.2app.classify", "x.ai2app.direct", "2app.classify"),
+    ("q.2ai.deployment", "x.app2ai.direct", "2ai.deployment"),
+    ("q.2app.deployment", "x.ai2app.direct", "2app.deployment"),
     ("q.2app.training", "x.ai2app.direct", "q.2app.training"),
 ]
 
@@ -87,7 +89,6 @@ def main():
     print("\n── 완료 ────────────────────────────────────────────")
     print("이제 consumer를 실행할 수 있습니다.")
     print("  python messaging/consumer_classify.py")
-    print("  python messaging/consumer_training.py")
     print("=" * 55)
 
 

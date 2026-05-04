@@ -18,6 +18,7 @@ uvicorn[standard]
 openai
 python-dotenv
 pika
+prometheus_client
 boto3
 dateparser
 kubernetes

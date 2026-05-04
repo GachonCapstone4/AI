@@ -7,12 +7,22 @@
 
 from api.schemas.classify import Classification, ClassifyRequest, ClassifyResponse
 from api.schemas.common import ErrorResponse, ResponseMeta, SummarizeResponse
+from api.schemas.deployment import (
+    DeploymentCompletedEvent,
+    DeploymentFailedEvent,
+    DeploymentRequest,
+    DeploymentRunningEvent,
+)
 from api.schemas.training import TrainingJobRequest, TrainingJobResult, TrainingMetrics
 
 __all__ = [
     "Classification",
     "ClassifyRequest",
     "ClassifyResponse",
+    "DeploymentCompletedEvent",
+    "DeploymentFailedEvent",
+    "DeploymentRequest",
+    "DeploymentRunningEvent",
     "ErrorResponse",
     "ResponseMeta",
     "SummarizeResponse",

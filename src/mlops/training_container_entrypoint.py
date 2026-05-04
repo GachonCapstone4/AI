@@ -81,6 +81,7 @@ def safe_publish_training_status(job_id: str, status: str, **kwargs) -> None:
     except Exception as exc:
         print(
             f"[WARN] Failed to publish training status '{status}' for job_id={job_id}: {exc}",
+            file=sys.__stderr__,
             flush=True,
         )
 
@@ -89,7 +90,7 @@ def safe_publish_sse_log(message: str) -> None:
     try:
         publish_sse_log(message)
     except Exception as exc:
-        print(f"[WARN] Failed to publish SSE log: {exc}", flush=True)
+        print(f"[WARN] Failed to publish SSE log: {exc}", file=sys.__stderr__, flush=True)
 
 
 def _resolve_dataset_path(dataset_path: Path | None, dataset_s3_uri: str | None) -> Path:
@@ -207,16 +208,22 @@ def run_container_training(args: argparse.Namespace) -> dict:
     artifact_s3_uri = f"s3://{args.s3_bucket}/{artifact_prefix}/"
 
     try:
-        safe_publish_training_status(args.job_id, "running")
+        safe_publish_sse_log("[INFO] Training job started")
+        safe_publish_training_status(
+            args.job_id,
+            "RUNNING",
+            model_version=args.model_version,
+        )
 
         dataset_download = None
         if args.dataset_s3_uri:
-            safe_publish_sse_log("[INFO] dataset 다운로드 시작")
+            safe_publish_sse_log("[INFO] Dataset download started")
             dataset_download = _download_dataset_from_s3(args.dataset_s3_uri, dataset_path)
+            safe_publish_sse_log("[INFO] Dataset download completed")
         else:
-            safe_publish_sse_log("[INFO] 로컬 dataset 사용")
+            safe_publish_sse_log("[INFO] Local dataset selected")
 
-        safe_publish_sse_log("[INFO] SBERT 학습 시작")
+        safe_publish_sse_log("[INFO] Training started")
 
         from .training_entrypoint import run_training
 
@@ -226,15 +233,16 @@ def run_container_training(args: argparse.Namespace) -> dict:
             model_version=args.model_version,
         )
 
-        safe_publish_sse_log("[INFO] classifier 학습 완료")
+        safe_publish_sse_log("[INFO] Training completed")
         validation = validate_model_artifact_dir(args.output_dir)
 
-        safe_publish_sse_log("[INFO] 모델 업로드")
+        safe_publish_sse_log("[INFO] Model artifact upload started")
         upload_result = upload_directory_to_s3(
             local_dir=args.output_dir,
             bucket=args.s3_bucket,
             prefix=artifact_prefix,
         )
+        safe_publish_sse_log("[INFO] Model artifact upload completed")
 
         safe_publish_sse_log("[INFO] latest.json 갱신")
         latest_pointer_payload = _build_latest_pointer_payload(
@@ -248,11 +256,9 @@ def run_container_training(args: argparse.Namespace) -> dict:
             bucket=args.s3_bucket,
             key=LATEST_POINTER_KEY,
         )
-
-        safe_publish_sse_log("[INFO] 학습 완료")
         safe_publish_training_status(
             args.job_id,
-            "completed",
+            "COMPLETED",
             model_version=args.model_version,
             metrics=training_result["metrics"],
         )
@@ -271,7 +277,12 @@ def run_container_training(args: argparse.Namespace) -> dict:
             "s3_artifact_uri": artifact_s3_uri,
         }
     except Exception as exc:
-        safe_publish_training_status(args.job_id, "failed", error_message=str(exc))
+        safe_publish_training_status(
+            args.job_id,
+            "FAILED",
+            model_version=args.model_version,
+            error_message=str(exc),
+        )
         safe_publish_sse_log(f"[ERROR] {exc}")
         raise
 

@@ -1,6 +1,6 @@
 # RabbitMQ 연동 스펙
 
-> 최종 수정: 2026-04-11
+> 최종 수정: 2026-05-04
 > 대상: 백엔드(Java) ↔ AI 서버 연동
 
 ---
@@ -20,14 +20,21 @@
 |---|---|---|
 | `x.app2ai.direct` | direct | 백엔드 → AI |
 | `x.ai2app.direct` | direct | AI → 백엔드 |
+| `x.sse.fanout` | fanout | AI/training → SSE 구독자 |
 
 | Queue | Exchange | Binding Key | 방향 |
 |---|---|---|---|
 | `q.2ai.classify` | x.app2ai.direct | 2ai.classify | 백엔드 → AI |
 | `q.2app.classify` | x.ai2app.direct | 2app.classify | AI → 백엔드 |
+| `q.2ai.deployment` | x.app2ai.direct | 2ai.deployment | 백엔드/Admin → AI |
+| `q.2app.deployment` | x.ai2app.direct | 2app.deployment | AI → 백엔드/Admin |
+| `q.2app.training` | x.ai2app.direct | q.2app.training | AI training 컨테이너 → Admin |
 
 - 모든 Exchange / Queue: `durable=true`, `delivery_mode=2` (persistent)
 - `content_type`: `application/json`, 인코딩: UTF-8
+- `q.2ai.classify` / `q.2app.classify`는 이메일 분류 전용이다. 재배포 요청/상태 전달에 사용하지 않는다.
+- `q.2app.training`은 재학습 상태 요약 이벤트 전용이다. 긴 학습 로그, stdout/stderr 성격 로그를 보내지 않는다.
+- 긴 학습 로그와 실시간 진행 로그는 `x.sse.fanout`으로 publish한다. fanout exchange이므로 queue routing key에 의존하지 않는다.
 
 ---
 
@@ -98,7 +105,6 @@ Backend consumer consumes from queue q.2app.classify
   },
   "summary":         "납품 일정 확인 요청 이메일입니다.",
   "schedule_info":   null,
-  "email_embedding": [0.123, 0.456, ...],
   "meta": {
     "elapsed_ms": 41.39,
     "source":     "consumer.classify"
@@ -114,7 +120,6 @@ Backend consumer consumes from queue q.2app.classify
 | classification.intent | string | 분류된 인텐트 |
 | summary | string | GPT 요약 |
 | schedule_info | object \| null | 일정 정보. 없으면 null. 포함 키는 `date`, `time`, `location` |
-| email_embedding | float[] | SBERT 임베딩 벡터 |
 | meta.elapsed_ms | float | AI 서버 처리 시간 (ms) |
 | meta.source | string | 항상 `"consumer.classify"` |
 
@@ -132,10 +137,168 @@ Backend consumer consumes from queue q.2app.classify
 
 ---
 
-## 6. 구분 규칙
+## 6. deployment
+
+### 6-1. 요청 — 백엔드/Admin이 exchange `x.app2ai.direct` 로 publish
+
+```text
+publish to exchange x.app2ai.direct with routing key 2ai.deployment
+message is routed to queue q.2ai.deployment
+AI deployment consumer consumes from queue q.2ai.deployment
+```
+
+```json
+{
+  "job_id": "deploy-2026-05-04-001",
+  "model_version": "training-final-004",
+  "artifact_s3_uri": "s3://capstone-gachon/models/training-final-004/",
+  "requested_by": "admin",
+  "requested_at": "2026-05-04T10:30:00Z"
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| job_id | string | ✅ | 재배포 Job 식별자. 모든 상태 이벤트에 그대로 보존 |
+| model_version | string | ✅ | preload 대상 모델 버전 |
+| artifact_s3_uri | string \| null |  | 모델 artifact S3 경로. 현재 AI 서버는 `model_version` 기반 ModelManager preload 로직을 재사용한다 |
+| requested_by | string \| null |  | 요청자 |
+| requested_at | string \| null |  | 요청 시각 |
+
+처리 순서:
+
+```text
+ModelManager.preload(model_version)
+→ ModelManager.validate()
+→ ModelManager.switch()
+```
+
+- MQ consumer는 HTTP `/deployment/preload`, `/deployment/validate`, `/deployment/switch`와 같은 `ModelManager` 인스턴스 및 로직을 재사용한다.
+- preload 실패 시 `current_bundle`은 유지된다.
+- validate 실패 시 `switch`를 수행하지 않는다.
+- switch는 `ModelManager` lock 안에서 `current_bundle = staging_bundle` 참조 교체만 수행한다.
+
+### 6-2. 응답 — AI가 exchange `x.ai2app.direct` 로 publish
+
+```text
+publish to exchange x.ai2app.direct with routing key 2app.deployment
+message is routed to queue q.2app.deployment
+Backend/Admin consumer consumes from queue q.2app.deployment
+```
+
+#### RUNNING
+
+```json
+{
+  "job_id": "deploy-2026-05-04-001",
+  "status": "RUNNING",
+  "model_version": "training-final-004",
+  "stage": "PRELOAD",
+  "message": "Preloading deployment model",
+  "timestamp": "2026-05-04T10:30:01Z"
+}
+```
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| job_id | string | 요청의 job_id 그대로 |
+| status | string | 항상 `RUNNING` |
+| model_version | string | 요청의 model_version 그대로 |
+| stage | string | `PRELOAD`, `VALIDATE`, `SWITCH` 중 하나 |
+| message | string | 진행 메시지 |
+| timestamp | string | 이벤트 발행 시각 |
+
+#### COMPLETED
+
+```json
+{
+  "job_id": "deploy-2026-05-04-001",
+  "status": "COMPLETED",
+  "model_version": "training-final-004",
+  "active_model_version": "training-final-004",
+  "finished_at": "2026-05-04T10:30:05Z",
+  "message": "Deployment completed"
+}
+```
+
+#### FAILED
+
+```json
+{
+  "job_id": "deploy-2026-05-04-001",
+  "status": "FAILED",
+  "model_version": "training-final-004",
+  "stage": "VALIDATE",
+  "error_message": "validation failed",
+  "finished_at": "2026-05-04T10:30:05Z"
+}
+```
+
+- 실패 시 `FAILED` 이벤트를 반드시 publish한다.
+- 성공 시 `COMPLETED` 이벤트를 반드시 publish한다.
+
+---
+
+## 7. training
+
+### 7-1. 상태 이벤트 — AI training 컨테이너가 `q.2app.training` 으로 publish
+
+`q.2app.training`에는 Admin 서버가 저장/처리할 상태 요약 이벤트만 보낸다.
+
+```json
+{
+  "job_id": "train-2026-05-04-001",
+  "status": "COMPLETED",
+  "model_version": "training-final-004",
+  "finished_at": "2026-05-04T10:30:05Z",
+  "metrics": {
+    "intent_f1": 0.91,
+    "domain_accuracy": 0.88
+  },
+  "error_message": null
+}
+```
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| job_id | string | 재학습 Job 식별자 |
+| status | string | `RUNNING`, `COMPLETED`, `FAILED` 중 하나 |
+| model_version | string \| null | 학습 대상/결과 모델 버전 |
+| finished_at | string \| null | `COMPLETED` 또는 `FAILED` 완료 시각. `RUNNING`은 null 가능 |
+| metrics.intent_f1 | float \| null | intent 분류 F1 |
+| metrics.domain_accuracy | float \| null | domain 분류 accuracy |
+| error_message | string \| null | 실패 사유. 성공/진행 중에는 null 가능 |
+
+- `RUNNING`: Job 시작 상태만 전달한다.
+- `COMPLETED`: `model_version`, `finished_at`, `metrics`를 포함한다.
+- `FAILED`: `finished_at`, `error_message`를 포함하며 반드시 publish한다.
+- 긴 학습 로그, 실시간 진행 로그, stdout/stderr 성격 데이터는 이 큐로 보내지 않는다.
+
+### 7-2. SSE 로그 — training 컨테이너가 `x.sse.fanout` 으로 publish
+
+```json
+{
+  "user_id": "admin",
+  "sse_type": "ai-training-updated",
+  "data": "[INFO] SBERT 학습 시작"
+}
+```
+
+- Exchange: `x.sse.fanout`
+- Type: `fanout`
+- Routing key: 사용하지 않음
+- 용도: SSE 구독자/관리자 화면용 실시간 로그 스트림
+
+---
+
+## 8. 구분 규칙
 
 - Queue name: `q.2ai.classify`, `q.2app.classify`
-- Routing key / Binding key: `2ai.classify`, `2app.classify`
+- Queue name: `q.2ai.deployment`, `q.2app.deployment`
+- Queue name: `q.2app.training`
+- Exchange name: `x.sse.fanout`
+- Routing key / Binding key: `2ai.classify`, `2app.classify`, `2ai.deployment`, `2app.deployment`, `q.2app.training`
 - Consumer 는 queue 이름으로 consume 한다.
 - Publisher 는 exchange + routing key 로 publish 한다.
 - `/classify` 경로는 default exchange `""` 를 사용하지 않는다.
+- 분류는 SBERT → Domain Logistic Regression → Intent Logistic Regression 구조를 사용하며, LLM을 분류기로 사용하지 않는다.

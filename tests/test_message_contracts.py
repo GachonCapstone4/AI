@@ -17,9 +17,14 @@ from api.schemas import (
     ClassifyRequest,
     ClassifyResponse,
     Classification,
+    DeploymentCompletedEvent,
+    DeploymentFailedEvent,
+    DeploymentRequest,
+    DeploymentRunningEvent,
     ResponseMeta,
 )
 from messaging.consumer_classify import _build_backend_classify_payload
+from messaging.consumer_deployment import process_deployment_message
 from messaging.publisher import publish
 
 
@@ -294,3 +299,142 @@ class TestBackendClassifyPublishPayload:
             "location": "Zoom",
         }
         assert "attendees" not in published_body["entities_json"]
+
+
+class TestDeploymentMessageContracts:
+    def test_deployment_request_requires_job_id_and_model_version(self):
+        payload = DeploymentRequest(
+            job_id="deploy-2026-05-04-001",
+            model_version="training-final-004",
+            artifact_s3_uri="s3://capstone-gachon/models/training-final-004/",
+            requested_by="admin",
+            requested_at="2026-05-04T10:30:00Z",
+        )
+
+        assert payload.job_id == "deploy-2026-05-04-001"
+        assert payload.model_version == "training-final-004"
+
+        with pytest.raises(ValidationError):
+            DeploymentRequest(job_id="deploy-1")
+        with pytest.raises(ValidationError):
+            DeploymentRequest(model_version="training-final-004")
+
+    def test_deployment_request_accepts_camel_case_aliases(self):
+        payload = DeploymentRequest(
+            jobId="deploy-1",
+            modelVersion="training-final-004",
+            artifactS3Uri="s3://bucket/models/training-final-004/",
+            requestedBy="admin",
+            requestedAt="2026-05-04T10:30:00Z",
+        )
+
+        assert payload.job_id == "deploy-1"
+        assert payload.model_version == "training-final-004"
+        assert payload.artifact_s3_uri == "s3://bucket/models/training-final-004/"
+
+    def test_deployment_events_parse(self):
+        running = DeploymentRunningEvent(
+            job_id="deploy-1",
+            status="RUNNING",
+            model_version="training-final-004",
+            stage="PRELOAD",
+            message="Preloading deployment model",
+            timestamp="2026-05-04T10:30:01Z",
+        )
+        completed = DeploymentCompletedEvent(
+            job_id="deploy-1",
+            status="COMPLETED",
+            model_version="training-final-004",
+            active_model_version="training-final-004",
+            finished_at="2026-05-04T10:30:05Z",
+        )
+        failed = DeploymentFailedEvent(
+            job_id="deploy-1",
+            status="FAILED",
+            model_version="training-final-004",
+            stage="VALIDATE",
+            error_message="validation failed",
+            finished_at="2026-05-04T10:30:05Z",
+        )
+
+        assert running.stage == "PRELOAD"
+        assert completed.message == "Deployment completed"
+        assert failed.status == "FAILED"
+
+    def test_process_deployment_publishes_running_and_completed_events(self):
+        class FakeChannel:
+            def __init__(self):
+                self.published = []
+
+            def basic_publish(self, **kwargs):
+                self.published.append(json.loads(kwargs["body"].decode("utf-8")))
+
+        class FakeManager:
+            def __init__(self):
+                self.calls = []
+
+            def preload(self, version):
+                self.calls.append(("preload", version))
+                return {"status": "preloaded", "model_version": version}
+
+            def validate(self):
+                self.calls.append(("validate", None))
+                return {"status": "validated", "model_version": "training-final-004"}
+
+            def switch(self):
+                self.calls.append(("switch", None))
+                return {"status": "switched", "model_version": "training-final-004"}
+
+        channel = FakeChannel()
+        manager = FakeManager()
+        payload = DeploymentRequest(
+            job_id="deploy-1",
+            model_version="training-final-004",
+        )
+
+        event = process_deployment_message(channel, manager, payload)
+
+        assert manager.calls == [
+            ("preload", "training-final-004"),
+            ("validate", None),
+            ("switch", None),
+        ]
+        assert [item["status"] for item in channel.published] == [
+            "RUNNING",
+            "RUNNING",
+            "RUNNING",
+            "COMPLETED",
+        ]
+        assert [item.get("stage") for item in channel.published[:3]] == [
+            "PRELOAD",
+            "VALIDATE",
+            "SWITCH",
+        ]
+        assert event["active_model_version"] == "training-final-004"
+
+    def test_validate_failure_does_not_switch(self):
+        class FakeChannel:
+            def basic_publish(self, **kwargs):
+                pass
+
+        class FakeManager:
+            def __init__(self):
+                self.switched = False
+
+            def preload(self, version):
+                return {"status": "preloaded", "model_version": version}
+
+            def validate(self):
+                raise RuntimeError("validation failed")
+
+            def switch(self):
+                self.switched = True
+                return {"status": "switched", "model_version": "bad"}
+
+        manager = FakeManager()
+        payload = DeploymentRequest(job_id="deploy-1", model_version="training-final-004")
+
+        with pytest.raises(Exception, match="validation failed"):
+            process_deployment_message(FakeChannel(), manager, payload)
+
+        assert manager.switched is False

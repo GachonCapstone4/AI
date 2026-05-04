@@ -11,6 +11,7 @@ DEFAULT_RABBITMQ_PORT = 30672
 DEFAULT_RABBITMQ_USERNAME = "admin"
 DEFAULT_RABBITMQ_PASSWORD = "admin1234!"
 DEFAULT_TRAINING_STATUS_QUEUE = "q.2app.training"
+DEFAULT_AI2APP_EXCHANGE = "x.ai2app.direct"
 DEFAULT_SSE_EXCHANGE = "x.sse.fanout"
 DEFAULT_SSE_TYPE = "ai-training-updated"
 
@@ -25,7 +26,34 @@ def _env_bool(name: str) -> bool:
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _training_metrics_payload(metrics: dict[str, Any] | None) -> dict[str, Any]:
+    metrics = metrics or {}
+    return {
+        "intent_f1": metrics.get("intent_f1"),
+        "domain_accuracy": metrics.get("domain_accuracy"),
+    }
+
+
+def _training_status_payload(
+    *,
+    job_id: str,
+    status: str,
+    model_version: str | None,
+    finished_at: str | None,
+    metrics: dict[str, Any] | None,
+    error_message: str | None,
+) -> dict[str, Any]:
+    return {
+        "job_id": job_id,
+        "status": status,
+        "model_version": model_version,
+        "finished_at": finished_at,
+        "metrics": _training_metrics_payload(metrics),
+        "error_message": error_message,
+    }
 
 
 def _rabbitmq_config() -> dict:
@@ -37,6 +65,7 @@ def _rabbitmq_config() -> dict:
         "training_status_queue": (
             _env("TRAINING_STATUS_QUEUE") or DEFAULT_TRAINING_STATUS_QUEUE
         ),
+        "ai2app_exchange": _env("AI2APP_EXCHANGE") or DEFAULT_AI2APP_EXCHANGE,
         "sse_exchange": _env("SSE_EXCHANGE") or DEFAULT_SSE_EXCHANGE,
         "user_id": _env("ADMIN_USER_ID") or _env("USER_ID"),
         "dry_run": _env_bool("RABBITMQ_DRY_RUN"),
@@ -58,9 +87,19 @@ def _publish_queue_message(config: dict, queue_name: str, payload: dict) -> None
     connection = pika.BlockingConnection(parameters)
     try:
         channel = connection.channel()
+        channel.exchange_declare(
+            exchange=config["ai2app_exchange"],
+            exchange_type="direct",
+            durable=True,
+        )
         channel.queue_declare(queue=queue_name, durable=True)
+        channel.queue_bind(
+            queue=queue_name,
+            exchange=config["ai2app_exchange"],
+            routing_key=queue_name,
+        )
         channel.basic_publish(
-            exchange="",
+            exchange=config["ai2app_exchange"],
             routing_key=queue_name,
             body=json.dumps(payload, ensure_ascii=False),
             properties=pika.BasicProperties(
@@ -124,27 +163,35 @@ def publish_training_status(
 ) -> dict:
     config = _rabbitmq_config()
     effective_dry_run = config["dry_run"] if dry_run is None else dry_run
+    normalized_status = status.upper()
 
-    if status == "running":
-        payload = {
-            "job_id": job_id,
-            "status": "running",
-        }
-    elif status == "completed":
-        payload = {
-            "job_id": job_id,
-            "status": "completed",
-            "model_version": model_version,
-            "finished_at": finished_at or _utc_now(),
-            "metrics": metrics or {},
-        }
-    elif status == "failed":
-        payload = {
-            "job_id": job_id,
-            "status": "failed",
-            "error_message": error_message or "",
-            "finished_at": finished_at or _utc_now(),
-        }
+    if normalized_status == "RUNNING":
+        payload = _training_status_payload(
+            job_id=job_id,
+            status="RUNNING",
+            model_version=model_version,
+            finished_at=finished_at,
+            metrics=metrics,
+            error_message=error_message,
+        )
+    elif normalized_status == "COMPLETED":
+        payload = _training_status_payload(
+            job_id=job_id,
+            status="COMPLETED",
+            model_version=model_version,
+            finished_at=finished_at or _utc_now(),
+            metrics=metrics,
+            error_message=error_message,
+        )
+    elif normalized_status == "FAILED":
+        payload = _training_status_payload(
+            job_id=job_id,
+            status="FAILED",
+            model_version=model_version,
+            finished_at=finished_at or _utc_now(),
+            metrics=metrics,
+            error_message=error_message or "",
+        )
     else:
         raise ValueError(f"Unsupported training status: {status}")
 
@@ -158,6 +205,8 @@ def publish_training_status(
         "published": not effective_dry_run,
         "dry_run": effective_dry_run,
         "queue": queue_name,
+        "exchange": config["ai2app_exchange"],
+        "routing_key": queue_name,
         "payload": payload,
     }
 
@@ -208,7 +257,7 @@ def main() -> None:
     args = parse_args()
     publish_training_status(
         job_id=args.job_id,
-        status="running",
+        status="RUNNING",
         dry_run=args.dry_run or _env_bool("RABBITMQ_DRY_RUN"),
     )
     publish_sse_log(

@@ -17,6 +17,7 @@ try:
         load_standard_model_bundle,
     )
     from .settings import get_settings
+    from .metrics import record_active_model
 except ImportError:
     from inference import predict_email
     from model_loader import (
@@ -25,6 +26,10 @@ except ImportError:
         load_standard_model_bundle,
     )
     from settings import get_settings
+    try:
+        from src.metrics import record_active_model
+    except ImportError:
+        from metrics import record_active_model
 
 
 VALIDATION_SAMPLES = (
@@ -71,6 +76,7 @@ class ModelManager:
             self.staging_bundle = None
             self.staging_model_version = None
             self.staging_validated = False
+        record_active_model(model_version=model_version)
         return {
             "status": "ok",
             "model_version": model_version,
@@ -159,6 +165,7 @@ class ModelManager:
             self.staging_model_version = None
             self.staging_validated = False
 
+        record_active_model(model_version=model_version)
         return {
             "status": "switched",
             "model_version": model_version,

@@ -65,59 +65,58 @@ Gmail API
 
 ---
 
-## Kubernetes Job 실행 가이드
+## MLOps 운영 구조
 
-이 가이드는 172.16.2.10 Linux EC2에서 dataset_batch.py 기반 Kubernetes Job을 실행하는 기준입니다. Kubernetes Job manifest는 --manifest-path로 전달합니다.
+이 AI repo는 실행 컨테이너와 AI FastAPI 서버를 제공한다. Job 생성은 Admin 서버 책임이다.
 
-dataset_batch.py는 이미지의 CMD를 통해 기본 실행됩니다. manifest에는 command와 args를 지정하지 않습니다.
+| 작업 | Job 생성 주체 | 실행 이미지 | 실행 코드 |
+|------|---------------|-------------|-----------|
+| 데이터 재수집 | Admin 서버가 Kubernetes API 직접 호출 | dataset-batch ECR 이미지 | `batch/dataset_batch.py` |
+| 재학습 | Admin 서버가 boto3 SageMaker `create_training_job` 직접 호출 | training ECR 이미지 | `src.mlops.training_container_entrypoint` |
+| 재배포 | Admin 서버가 AI FastAPI API 순차 호출 | AI FastAPI 서버 | `/deployment/preload` → `/deployment/validate` → `/deployment/switch` |
 
-실행 파라미터는 컨테이너 환경변수로 주입합니다.
+### 데이터 재수집 이미지
 
-    JOB_ID
-    ADMIN_USER_ID
+`batch/Dockerfile.dataset`은 `dataset_batch.py`를 직접 실행한다.
 
-AWS Credential은 Kubernetes Secret job-secret에서 envFrom으로 주입합니다.
+```dockerfile
+CMD ["python", "dataset_batch.py"]
+```
 
-    AWS_ACCESS_KEY_ID
-    AWS_SECRET_ACCESS_KEY
+Admin 서버는 Kubernetes Job body를 생성하고 dataset-batch ECR 이미지를 지정한다. 컨테이너에는 `JOB_ID`, `ADMIN_USER_ID`, DB 접속 정보, AWS/S3 정보, RabbitMQ 정보를 환경변수 또는 Secret으로 주입해야 한다.
 
-성공과 실패는 Kubernetes Job exit code 기준입니다. 성공 시 exit 0과 q.2app.training COMPLETED 이벤트를 발행하고, 실패 시 exit 1과 q.2app.training FAILED 이벤트를 발행합니다. 로그는 stdout 기준이며 kubectl logs로 확인합니다. 관리자 화면 실시간 표시는 x.sse.fanout 연동 예정입니다.
+### 재학습 이미지
 
-예시 manifest:
+`Dockerfile.training`은 SageMaker Training 컨테이너 entrypoint로 `training_container_entrypoint.py`를 직접 실행한다.
 
-    cat manifests/dataset-batch.yaml
+```dockerfile
+ENTRYPOINT ["python", "-m", "src.mlops.training_container_entrypoint"]
+```
 
-kubectl 권한 확인:
+Admin 서버는 SageMaker Training Job 생성 시 training ECR 이미지, `JOB_ID`, `DATASET_S3_URI`, `MODEL_VERSION`, `S3_BUCKET`, `S3_MODEL_PREFIX` 등을 넘긴다. 컨테이너 내부 학습 순서는 SBERT → Domain Logistic Regression → Intent Logistic Regression이다.
 
-    kubectl auth can-i create jobs -n admin
-    kubectl auth can-i get pods -n admin
-    kubectl auth can-i get pods/log -n admin
-    kubectl auth can-i delete jobs -n admin
+## Prometheus Metrics
 
-dry-run:
+AI FastAPI 서버는 로그 파일이나 별도 exporter 없이 프로세스 메모리에 추론 성능 metric을 누적하고 `GET /metrics`로 노출한다. `/metrics`는 classify 요청 수, latency, confidence score 분포, 오류 수, 일정 감지 수, active model version 같은 추론 지표 전용이다.
 
-    cd ~/Capstone_AI2
-    python -m launcher.run --job-id dataset-batch-001 --job-type k8s_job --dry-run --manifest-path manifests/dataset-batch.yaml
+재학습 성능 결과인 `intent_f1`, `domain_accuracy`는 Prometheus metric으로 노출하지 않는다. training은 epoch별 metric 갱신 구조가 아니라 학습 완료 후 최종 1회 `metrics.json`을 생성하는 구조이며, 같은 최종 결과가 `q.2app.training`의 `COMPLETED` payload에 포함된다. Admin training 로그/결과 화면은 이 `COMPLETED` payload의 `metrics`를 기준으로 표시한다.
 
-실제 Job 생성:
+Prometheus scrape 예시:
 
-    cd ~/Capstone_AI2
-    python -m launcher.run --job-id dataset-batch-001 --job-type k8s_job --manifest-path manifests/dataset-batch.yaml
+```yaml
+scrape_configs:
+  - job_name: "ai-server"
+    static_configs:
+      - targets: ["AI_SERVER_IP:8080"]
+```
 
-상태 확인:
+Grafana PromQL 예시:
 
-    kubectl get jobs -n admin
-    kubectl get pods -n admin -l job-name=dataset-batch
-
-로그 확인:
-
-    kubectl logs -n admin job/dataset-batch
-
-삭제:
-
-    kubectl delete job -n admin dataset-batch
-
-manifest에 metadata.namespace가 없으면 런처가 기본값 admin을 manifest 내부에 채워 넣습니다. manifest에 namespace가 이미 있으면 덮어쓰지 않습니다.
+```promql
+rate(ai_classify_requests_total[1m])
+histogram_quantile(0.95, rate(ai_classify_latency_seconds_bucket[5m]))
+ai_active_model_info
+```
 
 ---
 

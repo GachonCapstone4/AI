@@ -3,7 +3,7 @@ import sys
 from contextlib import asynccontextmanager
 import asyncio
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 
 # src/ 디렉토리를 import 경로에 추가
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -11,7 +11,9 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 from model_manager import ModelManager
 from api.routers import classify, deployment, summarize
 from messaging.consumer_classify import ClassifyConsumerRunner
+from messaging.consumer_deployment import DeploymentConsumerRunner
 from messaging.structured_log import get_logger
+from src.metrics import metrics_content
 from src.settings import validate_startup_settings
 
 log = get_logger("api.main")
@@ -49,8 +51,18 @@ async def lifespan(app: FastAPI):
     await asyncio.sleep(0)
     print("[Startup] classify consumer started")
 
+    print("[Startup] deployment consumer starting...")
+    deployment_consumer_runner = DeploymentConsumerRunner(app.state.model_manager)
+    deployment_consumer_runner.start()
+    app.state.deployment_consumer_runner = deployment_consumer_runner
+    await asyncio.sleep(0)
+    print("[Startup] deployment consumer started")
+
     yield
 
+    print("[Shutdown] deployment consumer stopping...")
+    deployment_consumer_runner.stop()
+    print("[Shutdown] deployment consumer stopped")
     print("[Shutdown] classify consumer stopping...")
     consumer_runner.stop()
     print("[Shutdown] classify consumer stopped")
@@ -86,6 +98,12 @@ app.include_router(deployment.router, tags=["Deployment"])
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
+
+
+@app.get("/metrics", include_in_schema=False)
+def metrics():
+    body, content_type = metrics_content()
+    return Response(content=body, media_type=content_type)
 
 
 if __name__ == "__main__":

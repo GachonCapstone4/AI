@@ -29,6 +29,7 @@ from api.schemas import ClassifyRequest, ResponseMeta
 from api.services.classify_service import run_classify
 from messaging.publisher import AI2APP_EXCHANGE, enable_delivery_confirms, publish
 from messaging.structured_log import get_logger
+from src.metrics import record_classify_error
 from src.settings import get_settings
 
 # ── 설정 ─────────────────────────────────────────────────────
@@ -372,6 +373,7 @@ def _callback(ch, method, properties, body):
 
     except json.JSONDecodeError as e:
         elapsed_ms = round((time.perf_counter() - t0) * 1000, 2)
+        record_classify_error(model_version="unknown", error_type=type(e).__name__)
         log.error("json_parse_failed",
                   queue=CONSUME_QUEUE, outbox_id=outbox_id, email_id=email_id,
                   success=False, elapsed_ms=elapsed_ms, error=str(e), retry_count=retry_count)
@@ -388,6 +390,7 @@ def _callback(ch, method, properties, body):
 
     except ValidationError as e:
         elapsed_ms = round((time.perf_counter() - t0) * 1000, 2)
+        record_classify_error(model_version="unknown", error_type=type(e).__name__)
         log.error("schema_validation_failed",
                   queue=CONSUME_QUEUE, outbox_id=outbox_id, email_id=email_id,
                   success=False, elapsed_ms=elapsed_ms, error=str(e), retry_count=retry_count)

@@ -3,6 +3,7 @@
 #
 # Exchange : x.ai2app.direct
 # Routing  : 2app.classify -> q.2app.classify (pre-created binding)
+#            2app.deployment -> q.2app.deployment (pre-created binding)
 # ============================================================
 
 import json
@@ -12,6 +13,7 @@ from messaging.structured_log import get_logger
 from src.settings import get_settings
 
 AI2APP_EXCHANGE = "x.ai2app.direct"
+DEPLOYMENT_ROUTING_KEY = "2app.deployment"
 
 _PROPS = pika.BasicProperties(
     content_type="application/json",
@@ -48,7 +50,12 @@ def publish(channel: pika.channel.Channel, routing_key: str, message: dict) -> N
              routing_key=routing_key,
              outbox_id=message.get("outbox_id", "(unknown)"),
              email_id=message.get("email_id", "(unknown)"),
+             job_id=message.get("job_id", "(unknown)"),
              status=message.get("status", "ok"))
+
+
+def publish_deployment_status(channel: pika.channel.Channel, message: dict) -> None:
+    publish(channel, DEPLOYMENT_ROUTING_KEY, message)
 
 
 class StandalonePublisher:
