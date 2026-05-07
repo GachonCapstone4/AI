@@ -40,11 +40,12 @@ EXCHANGES = [
 ]
 
 # (queue_name, exchange, binding_key)
+# exchange=None means the queue is reached through the RabbitMQ default exchange.
 QUEUES = [
     ("q.2ai.classify",  "x.app2ai.direct", "2ai.classify"),
     ("q.2app.classify", "x.ai2app.direct", "2app.classify"),
-    ("q.2ai.deployment", "x.app2ai.direct", "2ai.deployment"),
-    ("q.2app.deployment", "x.ai2app.direct", "2app.deployment"),
+    ("q.ai.deployment", "x.app2ai.direct", "deployment"),
+    ("q.2app.deployment", None, "q.2app.deployment"),
     ("q.2app.training", "x.ai2app.direct", "q.2app.training"),
 ]
 
@@ -74,14 +75,17 @@ def main():
     print("\n── Queue 선언 + Binding ────────────────────────────")
     for queue, exchange, binding_key in QUEUES:
         ch.queue_declare(queue=queue, durable=True)
-        ch.queue_bind(queue=queue, exchange=exchange, routing_key=binding_key)
         print(f"  [OK] {queue}")
-        print(f"       bind: exchange={exchange}  binding_key={binding_key}")
+        if exchange is None:
+            print(f"       route: exchange=<default>  routing_key={binding_key}")
+        else:
+            ch.queue_bind(queue=queue, exchange=exchange, routing_key=binding_key)
+            print(f"       bind: exchange={exchange}  binding_key={binding_key}")
 
     print("\n── Self-check 요약 ─────────────────────────────────")
     for queue, exchange, binding_key in QUEUES:
         print(f"  queue={queue}")
-        print(f"    exchange={exchange}")
+        print(f"    exchange={exchange or '<default>'}")
         print(f"    binding_key={binding_key}")
 
     conn.close()

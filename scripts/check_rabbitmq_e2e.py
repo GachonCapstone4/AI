@@ -28,10 +28,14 @@ SSE_EXCHANGE = "x.sse.fanout"
 
 CLASSIFY_IN_QUEUE = "q.2ai.classify"
 CLASSIFY_OUT_QUEUE = "q.2app.classify"
+DEPLOYMENT_IN_QUEUE = "q.ai.deployment"
+DEPLOYMENT_OUT_QUEUE = "q.2app.deployment"
 TRAINING_QUEUE = "q.2app.training"
 
 CLASSIFY_IN_RK = "2ai.classify"
 CLASSIFY_OUT_RK = "2app.classify"
+DEPLOYMENT_IN_RK = "deployment"
+DEPLOYMENT_OUT_RK = "q.2app.deployment"
 TRAINING_RK = "q.2app.training"
 
 LONG_LOG_FIELDS = {"data", "message", "stdout", "stderr"}
@@ -71,11 +75,13 @@ def _declare_topology(conn, ch):
 
     ch = _ensure_queue_binding(conn, ch, CLASSIFY_IN_QUEUE, APP2AI_EXCHANGE, CLASSIFY_IN_RK)
     ch = _ensure_queue_binding(conn, ch, CLASSIFY_OUT_QUEUE, AI2APP_EXCHANGE, CLASSIFY_OUT_RK)
+    ch = _ensure_queue_binding(conn, ch, DEPLOYMENT_IN_QUEUE, APP2AI_EXCHANGE, DEPLOYMENT_IN_RK)
+    ch = _ensure_queue(conn, ch, DEPLOYMENT_OUT_QUEUE)
     ch = _ensure_queue_binding(conn, ch, TRAINING_QUEUE, AI2APP_EXCHANGE, TRAINING_RK)
     return ch
 
 
-def _ensure_queue_binding(conn, ch, queue: str, exchange: str, routing_key: str):
+def _ensure_queue(conn, ch, queue: str):
     try:
         ch.queue_declare(queue=queue, passive=True)
     except pika.exceptions.ChannelClosedByBroker as exc:
@@ -85,7 +91,11 @@ def _ensure_queue_binding(conn, ch, queue: str, exchange: str, routing_key: str)
             ) from exc
         ch = conn.channel()
         ch.queue_declare(queue=queue, durable=True)
+    return ch
 
+
+def _ensure_queue_binding(conn, ch, queue: str, exchange: str, routing_key: str):
+    ch = _ensure_queue(conn, ch, queue)
     ch.queue_bind(queue=queue, exchange=exchange, routing_key=routing_key)
     return ch
 
@@ -262,6 +272,29 @@ def _training_status_payload(test_id: str, status: str = "RUNNING") -> dict:
     }
 
 
+def _deployment_request_payload(test_id: str) -> dict:
+    return {
+        "job_id": f"deploy-e2e-{test_id}",
+        "model_version": "training-final-004",
+        "artifact_s3_uri": "s3://capstone-gachon/models/training-final-004/",
+        "requested_by": "admin",
+        "requested_at": "2026-05-04T10:30:00Z",
+        "_e2e_id": test_id,
+    }
+
+
+def _deployment_status_payload(test_id: str) -> dict:
+    return {
+        "job_id": f"deploy-e2e-{test_id}",
+        "status": "COMPLETED",
+        "model_version": "training-final-004",
+        "active_model_version": "training-final-004",
+        "finished_at": "2026-05-04T10:30:05Z",
+        "message": "Deployment completed",
+        "_e2e_id": test_id,
+    }
+
+
 def _sse_payload(test_id: str) -> dict:
     return {
         "user_id": "admin",
@@ -350,6 +383,38 @@ def check_training_status(ch, test_id: str, timeout: float) -> None:
     _pass("training status payload has no long log fields")
 
 
+def check_deployment_request(ch, test_id: str, timeout: float) -> None:
+    label = f"{APP2AI_EXCHANGE} -> {DEPLOYMENT_IN_QUEUE}"
+    payload = _deployment_request_payload(test_id)
+    received = _publish_and_consume_matching(
+        ch,
+        DEPLOYMENT_IN_QUEUE,
+        lambda: _publish_json(ch, APP2AI_EXCHANGE, DEPLOYMENT_IN_RK, payload),
+        lambda item: item.get("_e2e_id") == test_id,
+        timeout,
+    )
+    _assert_fields(received, {"job_id", "model_version"}, label)
+    _pass(label)
+
+
+def check_deployment_status(ch, test_id: str, timeout: float) -> None:
+    label = f"default exchange -> {DEPLOYMENT_OUT_QUEUE}"
+    payload = _deployment_status_payload(test_id)
+    received = _publish_and_consume_matching(
+        ch,
+        DEPLOYMENT_OUT_QUEUE,
+        lambda: _publish_json(ch, "", DEPLOYMENT_OUT_RK, payload),
+        lambda item: item.get("_e2e_id") == test_id,
+        timeout,
+    )
+    _assert_fields(
+        received,
+        {"job_id", "status", "model_version", "active_model_version", "finished_at"},
+        label,
+    )
+    _pass(label)
+
+
 def check_sse_fanout(ch, test_id: str, timeout: float) -> None:
     label = f"{SSE_EXCHANGE} -> temporary SSE queue"
     result = ch.queue_declare(queue="", exclusive=True, auto_delete=True)
@@ -421,6 +486,22 @@ def check_training_status_topology(ch, test_id: str) -> None:
     _pass("training status payload has no long log fields")
 
 
+def check_deployment_request_topology(ch, test_id: str) -> None:
+    label = f"{APP2AI_EXCHANGE} -> {DEPLOYMENT_IN_QUEUE}"
+    payload = _deployment_request_payload(test_id)
+    _check_publish_routable(ch, APP2AI_EXCHANGE, DEPLOYMENT_IN_RK, payload, label)
+    _print_queue_state(ch, DEPLOYMENT_IN_QUEUE)
+    _pass(label)
+
+
+def check_deployment_status_topology(ch, test_id: str) -> None:
+    label = f"default exchange -> {DEPLOYMENT_OUT_QUEUE}"
+    payload = _deployment_status_payload(test_id)
+    _check_publish_routable(ch, "", DEPLOYMENT_OUT_RK, payload, label)
+    _print_queue_state(ch, DEPLOYMENT_OUT_QUEUE)
+    _pass(label)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="RabbitMQ topology E2E check")
     parser.add_argument("--timeout", type=float, default=5.0)
@@ -445,12 +526,16 @@ def main() -> int:
         checks = [
             check_classify_request_topology,
             check_classify_result_topology,
+            check_deployment_request_topology,
+            check_deployment_status_topology,
             check_training_status_topology,
         ]
     else:
         checks = [
             check_classify_request,
             check_classify_result,
+            check_deployment_request,
+            check_deployment_status,
             check_training_status,
         ]
     test_id = uuid.uuid4().hex

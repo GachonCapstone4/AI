@@ -1,8 +1,8 @@
 # ============================================================
 # deployment consumer
 #
-# Consume : q.2ai.deployment   (x.app2ai.direct)
-# Publish : q.2app.deployment  (x.ai2app.direct)
+# Consume : q.ai.deployment    (x.app2ai.direct, routing key: deployment)
+# Publish : q.2app.deployment  (default exchange)
 #
 # The consumer reuses the same ModelManager instance as the HTTP
 # /deployment/preload, /validate, /switch API.
@@ -29,9 +29,10 @@ from messaging.publisher import enable_delivery_confirms, publish_deployment_sta
 from messaging.structured_log import get_logger
 from src.settings import get_settings
 
-CONSUME_QUEUE = "q.2ai.deployment"
+CONSUME_QUEUE = "q.ai.deployment"
 PUBLISH_QUEUE = "q.2app.deployment"
-PUBLISH_ROUTING_KEY = "2app.deployment"
+SOURCE_EXCHANGE = "x.app2ai.direct"
+SOURCE_ROUTING_KEY = "deployment"
 PREFETCH_COUNT = 1
 
 log = get_logger("consumer.deployment")
@@ -171,8 +172,8 @@ class DeploymentConsumerRunner:
                 log.info(
                     "consuming",
                     queue=CONSUME_QUEUE,
-                    source_exchange="x.app2ai.direct",
-                    source_routing_key="2ai.deployment",
+                    source_exchange=SOURCE_EXCHANGE,
+                    source_routing_key=SOURCE_ROUTING_KEY,
                 )
                 ch.start_consuming()
             except pika.exceptions.AMQPConnectionError as exc:

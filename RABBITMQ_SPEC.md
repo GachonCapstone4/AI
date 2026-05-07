@@ -1,6 +1,6 @@
 # RabbitMQ 연동 스펙
 
-> 최종 수정: 2026-05-04
+> 최종 수정: 2026-05-07
 > 대상: 백엔드(Java) ↔ AI 서버 연동
 
 ---
@@ -26,8 +26,8 @@
 |---|---|---|---|
 | `q.2ai.classify` | x.app2ai.direct | 2ai.classify | 백엔드 → AI |
 | `q.2app.classify` | x.ai2app.direct | 2app.classify | AI → 백엔드 |
-| `q.2ai.deployment` | x.app2ai.direct | 2ai.deployment | 백엔드/Admin → AI |
-| `q.2app.deployment` | x.ai2app.direct | 2app.deployment | AI → 백엔드/Admin |
+| `q.ai.deployment` | x.app2ai.direct | deployment | 백엔드/Admin → AI |
+| `q.2app.deployment` | `<default>` | q.2app.deployment | AI → 백엔드/Admin |
 | `q.2app.training` | x.ai2app.direct | q.2app.training | AI training 컨테이너 → Admin |
 
 - 모든 Exchange / Queue: `durable=true`, `delivery_mode=2` (persistent)
@@ -142,9 +142,17 @@ Backend consumer consumes from queue q.2app.classify
 ### 6-1. 요청 — 백엔드/Admin이 exchange `x.app2ai.direct` 로 publish
 
 ```text
-publish to exchange x.app2ai.direct with routing key 2ai.deployment
-message is routed to queue q.2ai.deployment
-AI deployment consumer consumes from queue q.2ai.deployment
+publish to exchange x.app2ai.direct with routing key deployment
+message is routed to queue q.ai.deployment
+AI deployment consumer consumes from queue q.ai.deployment
+```
+
+실제 RabbitMQ binding 기준:
+
+```text
+queue=q.ai.deployment
+exchange=x.app2ai.direct
+binding_key=deployment
 ```
 
 ```json
@@ -178,12 +186,20 @@ ModelManager.preload(model_version)
 - validate 실패 시 `switch`를 수행하지 않는다.
 - switch는 `ModelManager` lock 안에서 `current_bundle = staging_bundle` 참조 교체만 수행한다.
 
-### 6-2. 응답 — AI가 exchange `x.ai2app.direct` 로 publish
+### 6-2. 응답 — AI가 default exchange 로 publish
 
 ```text
-publish to exchange x.ai2app.direct with routing key 2app.deployment
+publish to default exchange with routing key q.2app.deployment
 message is routed to queue q.2app.deployment
 Backend/Admin consumer consumes from queue q.2app.deployment
+```
+
+실제 RabbitMQ binding 기준:
+
+```text
+queue=q.2app.deployment
+exchange=<default>
+routing_key=q.2app.deployment
 ```
 
 #### RUNNING
@@ -294,10 +310,10 @@ Backend/Admin consumer consumes from queue q.2app.deployment
 ## 8. 구분 규칙
 
 - Queue name: `q.2ai.classify`, `q.2app.classify`
-- Queue name: `q.2ai.deployment`, `q.2app.deployment`
+- Queue name: `q.ai.deployment`, `q.2app.deployment`
 - Queue name: `q.2app.training`
 - Exchange name: `x.sse.fanout`
-- Routing key / Binding key: `2ai.classify`, `2app.classify`, `2ai.deployment`, `2app.deployment`, `q.2app.training`
+- Routing key / Binding key: `2ai.classify`, `2app.classify`, `deployment`, `q.2app.deployment`, `q.2app.training`
 - Consumer 는 queue 이름으로 consume 한다.
 - Publisher 는 exchange + routing key 로 publish 한다.
 - `/classify` 경로는 default exchange `""` 를 사용하지 않는다.

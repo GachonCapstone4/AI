@@ -24,8 +24,13 @@ from api.schemas import (
     ResponseMeta,
 )
 from messaging.consumer_classify import _build_backend_classify_payload
-from messaging.consumer_deployment import process_deployment_message
-from messaging.publisher import publish
+from messaging.consumer_deployment import (
+    CONSUME_QUEUE,
+    SOURCE_EXCHANGE,
+    SOURCE_ROUTING_KEY,
+    process_deployment_message,
+)
+from messaging.publisher import DEPLOYMENT_STATUS_QUEUE, publish
 
 
 # ── 픽스처: 표준 입력 메시지 ─────────────────────────────────
@@ -302,6 +307,12 @@ class TestBackendClassifyPublishPayload:
 
 
 class TestDeploymentMessageContracts:
+    def test_deployment_topology_constants_match_infra_binding(self):
+        assert CONSUME_QUEUE == "q.ai.deployment"
+        assert SOURCE_EXCHANGE == "x.app2ai.direct"
+        assert SOURCE_ROUTING_KEY == "deployment"
+        assert DEPLOYMENT_STATUS_QUEUE == "q.2app.deployment"
+
     def test_deployment_request_requires_job_id_and_model_version(self):
         payload = DeploymentRequest(
             job_id="deploy-2026-05-04-001",
@@ -367,7 +378,13 @@ class TestDeploymentMessageContracts:
                 self.published = []
 
             def basic_publish(self, **kwargs):
-                self.published.append(json.loads(kwargs["body"].decode("utf-8")))
+                self.published.append(
+                    {
+                        "exchange": kwargs["exchange"],
+                        "routing_key": kwargs["routing_key"],
+                        "body": json.loads(kwargs["body"].decode("utf-8")),
+                    }
+                )
 
         class FakeManager:
             def __init__(self):
@@ -399,17 +416,19 @@ class TestDeploymentMessageContracts:
             ("validate", None),
             ("switch", None),
         ]
-        assert [item["status"] for item in channel.published] == [
+        assert [item["body"]["status"] for item in channel.published] == [
             "RUNNING",
             "RUNNING",
             "RUNNING",
             "COMPLETED",
         ]
-        assert [item.get("stage") for item in channel.published[:3]] == [
+        assert [item["body"].get("stage") for item in channel.published[:3]] == [
             "PRELOAD",
             "VALIDATE",
             "SWITCH",
         ]
+        assert {item["exchange"] for item in channel.published} == {""}
+        assert {item["routing_key"] for item in channel.published} == {"q.2app.deployment"}
         assert event["active_model_version"] == "training-final-004"
 
     def test_validate_failure_does_not_switch(self):
