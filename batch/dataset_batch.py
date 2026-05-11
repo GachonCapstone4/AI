@@ -214,11 +214,21 @@ def fetch_training_data():
 # CSV 파일 생성
 # ============================================================
 def create_csv(rows: list, filepath: str):
-    fieldnames = ["emailId", "threadId", "from", "subject", "body", "domain", "intent"]
+    fieldnames = ["emailId", "threadId", "from", "subject", "body", "email_text", "domain", "intent"]
     with open(filepath, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
-        writer.writerows(rows)
+        for row in rows:
+            subject = row.get("subject") or ""
+            body = row.get("body") or ""
+            csv_row = {
+                fieldname: row.get(fieldname)
+                for fieldname in fieldnames
+                if fieldname != "email_text"
+            }
+            # Always regenerate email_text from subject/body to keep training input consistent.
+            csv_row["email_text"] = f"{subject}\n{body}".strip()
+            writer.writerow(csv_row)
     logger.info(f"CSV 파일 생성 완료: {filepath} ({len(rows)}행)")
 
 

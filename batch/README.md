@@ -6,7 +6,7 @@ DB에서 학습 데이터 추출 → CSV 생성 → S3 업로드 → SSE 로그 
 ## 전체 흐름
 ```
 1. DB(emails + email_analysis_results) 조인하여 데이터 추출
-2. CSV 파일 생성 (emailId, from, subject, body, domain, intent)
+2. CSV 파일 생성 (emailId, threadId, from, subject, body, email_text, domain, intent)
 3. S3 업로드 (s3://capstone-gachon/dataset/dataset_new.csv)
 4. 진행 로그 → x.sse.fanout 발행
 5. 완료/실패 이벤트 → q.2app.training 발행 (status: COMPLETED / FAILED)
@@ -52,6 +52,7 @@ python dataset_batch.py
 
 ## CSV 컬럼 구조
 ```
-emailId,from,subject,body,domain,intent
-train_1,sender@example.com,제목,본문내용,Finance,세금계산서 요청
+emailId,threadId,from,subject,body,email_text,domain,intent
+train_1,thread-1,sender@example.com,제목,본문내용,"제목
+본문내용",Finance,세금계산서 요청
 ```
