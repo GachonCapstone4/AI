@@ -1,26 +1,40 @@
 import csv
 import importlib.util
+import json
 import sys
 import types
 
 
+class _BasicProperties:
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+
+
 def _stub_missing_batch_dependencies():
-    if importlib.util.find_spec("boto3") is None:
+    if "boto3" not in sys.modules and importlib.util.find_spec("boto3") is None:
         sys.modules["boto3"] = types.ModuleType("boto3")
 
-    if importlib.util.find_spec("mysql") is None:
+    if "mysql" not in sys.modules and importlib.util.find_spec("mysql") is None:
         mysql = types.ModuleType("mysql")
         mysql.connector = types.ModuleType("mysql.connector")
         sys.modules["mysql"] = mysql
         sys.modules["mysql.connector"] = mysql.connector
 
-    if importlib.util.find_spec("pika") is None:
+    if "pika" not in sys.modules and importlib.util.find_spec("pika") is None:
         pika = types.ModuleType("pika")
         pika.PlainCredentials = object
         pika.ConnectionParameters = object
         pika.BlockingConnection = object
-        pika.BasicProperties = object
+        pika.BasicProperties = _BasicProperties
         sys.modules["pika"] = pika
+
+
+class _FakeChannel:
+    def __init__(self):
+        self.published = None
+
+    def basic_publish(self, **kwargs):
+        self.published = kwargs
 
 
 def test_create_csv_adds_regenerated_email_text(tmp_path):
@@ -68,3 +82,26 @@ def test_create_csv_adds_regenerated_email_text(tmp_path):
     ]
     assert written_rows[0]["email_text"] == "Invoice request\nPlease send the invoice."
     assert written_rows[1]["email_text"] == ""
+
+
+def test_dataset_sse_log_uses_collecting_sse_type(monkeypatch):
+    _stub_missing_batch_dependencies()
+    import batch.dataset_batch as dataset_batch
+
+    monkeypatch.setattr(dataset_batch, "ADMIN_USER_ID", "admin")
+    channel = _FakeChannel()
+
+    dataset_batch.publish_sse_log(
+        channel,
+        "[INFO] DB 데이터 추출 시작",
+        sse_type=dataset_batch.DATASET_SSE_TYPE,
+    )
+
+    payload = json.loads(channel.published["body"])
+    assert channel.published["exchange"] == "x.sse.fanout"
+    assert channel.published["routing_key"] == ""
+    assert payload == {
+        "user_id": "admin",
+        "sse_type": "ai-collecting-updated",
+        "data": "[INFO] DB 데이터 추출 시작",
+    }

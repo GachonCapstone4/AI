@@ -87,7 +87,8 @@ RABBITMQ_REQUIRED_ENV_VARS = (
 # RabbitMQ 상수
 EXCHANGE_SSE_FANOUT   = "x.sse.fanout"
 QUEUE_TRAINING_RESULT = "q.2app.training"
-SSE_TYPE              = "ai-training-updated"
+DEFAULT_SSE_TYPE      = "ai-training-updated"
+DATASET_SSE_TYPE      = "ai-collecting-updated"
 
 
 # ============================================================
@@ -118,10 +119,10 @@ def connect_rabbitmq():
 # ============================================================
 # SSE 로그 발행
 # ============================================================
-def publish_sse_log(channel, message: str):
+def publish_sse_log(channel, message: str, sse_type: str = DEFAULT_SSE_TYPE):
     payload = {
         "user_id": ADMIN_USER_ID,
-        "sse_type": SSE_TYPE,
+        "sse_type": sse_type,
         "data": message
     }
     try:
@@ -261,31 +262,31 @@ def main():
         validate_required_env()
 
         # 1. DB 데이터 추출
-        publish_sse_log(channel, "[INFO] DB 데이터 추출 시작")
+        publish_sse_log(channel, "[INFO] DB 데이터 추출 시작", sse_type=DATASET_SSE_TYPE)
         rows = fetch_training_data()
-        publish_sse_log(channel, f"[INFO] {len(rows)}건 추출 완료")
+        publish_sse_log(channel, f"[INFO] {len(rows)}건 추출 완료", sse_type=DATASET_SSE_TYPE)
 
         if len(rows) == 0:
             raise ValueError("추출된 데이터가 없습니다. domain/intent 분류된 이메일을 확인해주세요.")
 
         # 2. CSV 생성
-        publish_sse_log(channel, "[INFO] CSV 파일 변환 중")
+        publish_sse_log(channel, "[INFO] CSV 파일 변환 중", sse_type=DATASET_SSE_TYPE)
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".csv", delete=False, encoding="utf-8"
         ) as tmp:
             tmp_path = tmp.name
 
         create_csv(rows, tmp_path)
-        publish_sse_log(channel, "[INFO] CSV 파일 생성 완료")
+        publish_sse_log(channel, "[INFO] CSV 파일 생성 완료", sse_type=DATASET_SSE_TYPE)
 
         # 3. S3 업로드
-        publish_sse_log(channel, "[INFO] S3 업로드 시작")
+        publish_sse_log(channel, "[INFO] S3 업로드 시작", sse_type=DATASET_SSE_TYPE)
         s3_uri = upload_to_s3(tmp_path)
-        publish_sse_log(channel, f"[INFO] S3 업로드 완료 — {s3_uri}")
+        publish_sse_log(channel, f"[INFO] S3 업로드 완료 — {s3_uri}", sse_type=DATASET_SSE_TYPE)
 
         # 4. dataset_version 생성
         dataset_version = datetime.now(timezone.utc).strftime("v%Y-%m-%d-%H%M%S")
-        publish_sse_log(channel, f"[INFO] 데이터 수집 완료 — dataset_version: {dataset_version}")
+        publish_sse_log(channel, f"[INFO] 데이터 수집 완료 — dataset_version: {dataset_version}", sse_type=DATASET_SSE_TYPE)
 
         # 5. 완료 이벤트 발행
         publish_training_event(
@@ -298,7 +299,7 @@ def main():
 
     except Exception as e:
         logger.error(f"배치 실패: {e}", exc_info=True)
-        publish_sse_log(channel, f"[ERROR] 데이터 수집 실패: {e}")
+        publish_sse_log(channel, f"[ERROR] 데이터 수집 실패: {e}", sse_type=DATASET_SSE_TYPE)
         publish_training_event(channel, status="FAILED", error_message=str(e))
         raise
 
