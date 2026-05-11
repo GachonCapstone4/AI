@@ -4,6 +4,8 @@ import json
 import sys
 import types
 
+import pytest
+
 
 class _BasicProperties:
     def __init__(self, **kwargs):
@@ -88,7 +90,7 @@ def test_dataset_sse_log_uses_collecting_sse_type(monkeypatch):
     _stub_missing_batch_dependencies()
     import batch.dataset_batch as dataset_batch
 
-    monkeypatch.setattr(dataset_batch, "ADMIN_USER_ID", "admin")
+    monkeypatch.setattr(dataset_batch, "ADMIN_USER_ID", "1")
     channel = _FakeChannel()
 
     dataset_batch.publish_sse_log(
@@ -101,7 +103,25 @@ def test_dataset_sse_log_uses_collecting_sse_type(monkeypatch):
     assert channel.published["exchange"] == "x.sse.fanout"
     assert channel.published["routing_key"] == ""
     assert payload == {
-        "user_id": "admin",
+        "user_id": 1,
         "sse_type": "ai-collecting-updated",
         "data": "[INFO] DB 데이터 추출 시작",
     }
+    assert isinstance(payload["user_id"], int)
+
+
+def test_dataset_sse_log_rejects_non_integer_user_id(monkeypatch):
+    _stub_missing_batch_dependencies()
+    import batch.dataset_batch as dataset_batch
+
+    monkeypatch.setattr(dataset_batch, "ADMIN_USER_ID", "admin")
+    channel = _FakeChannel()
+
+    with pytest.raises(ValueError, match="ADMIN_USER_ID must be an integer"):
+        dataset_batch.publish_sse_log(
+            channel,
+            "[INFO] DB 데이터 추출 시작",
+            sse_type=dataset_batch.DATASET_SSE_TYPE,
+        )
+
+    assert channel.published is None

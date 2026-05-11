@@ -193,6 +193,8 @@ def build_dry_run_plan(dataset_path: Path, output_dir: Path, model_version: str)
         ],
         "artifact_files": {
             "sbert": str(artifact_paths["sbert_dir"]),
+            "sbert_model": str(artifact_paths["sbert_dir"] / "model.safetensors"),
+            "sbert_tokenizer": str(artifact_paths["sbert_dir"] / "tokenizer.json"),
             "domain_model": str(artifact_paths["domain_model"]),
             "intent_model": str(artifact_paths["intent_model"]),
             "metrics": str(artifact_paths["metrics"]),

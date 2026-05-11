@@ -100,6 +100,20 @@ def validate_required_env(names=REQUIRED_ENV_VARS):
         raise RuntimeError(f"필수 환경변수가 누락되었습니다: {', '.join(missing)}")
 
 
+def _parse_sse_user_id(value: str | int | None, source: str) -> int:
+    if value is None or value == "":
+        message = f"{source} is required for SSE log publish."
+        logger.error(message)
+        raise ValueError(message)
+
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        message = f"{source} must be an integer for SSE log publish: {value!r}"
+        logger.error(message)
+        raise ValueError(message) from exc
+
+
 # ============================================================
 # RabbitMQ 연결
 # ============================================================
@@ -121,7 +135,7 @@ def connect_rabbitmq():
 # ============================================================
 def publish_sse_log(channel, message: str, sse_type: str = DEFAULT_SSE_TYPE):
     payload = {
-        "user_id": ADMIN_USER_ID,
+        "user_id": _parse_sse_user_id(ADMIN_USER_ID, "ADMIN_USER_ID"),
         "sse_type": sse_type,
         "data": message
     }

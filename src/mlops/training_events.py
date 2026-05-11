@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 from datetime import datetime, timezone
 from typing import Any
 
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_RABBITMQ_PORT = 30672
 DEFAULT_RABBITMQ_USERNAME = "admin"
@@ -23,6 +26,27 @@ def _env(name: str) -> str | None:
 
 def _env_bool(name: str) -> bool:
     return (_env(name) or "").strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _sse_user_id_from_env() -> tuple[str | None, str]:
+    admin_user_id = _env("ADMIN_USER_ID")
+    if admin_user_id:
+        return admin_user_id, "ADMIN_USER_ID"
+    return _env("USER_ID"), "USER_ID"
+
+
+def _parse_sse_user_id(value: str | int | None, source: str) -> int:
+    if value is None or value == "":
+        message = f"{source} is required for SSE log publish."
+        logger.error(message)
+        raise ValueError(message)
+
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        message = f"{source} must be an integer for SSE log publish: {value!r}"
+        logger.error(message)
+        raise ValueError(message) from exc
 
 
 def _utc_now() -> str:
@@ -57,6 +81,7 @@ def _training_status_payload(
 
 
 def _rabbitmq_config() -> dict:
+    user_id, user_id_source = _sse_user_id_from_env()
     return {
         "host": _env("RABBITMQ_HOST"),
         "port": int(_env("RABBITMQ_PORT") or DEFAULT_RABBITMQ_PORT),
@@ -67,7 +92,8 @@ def _rabbitmq_config() -> dict:
         ),
         "ai2app_exchange": _env("AI2APP_EXCHANGE") or DEFAULT_AI2APP_EXCHANGE,
         "sse_exchange": _env("SSE_EXCHANGE") or DEFAULT_SSE_EXCHANGE,
-        "user_id": _env("ADMIN_USER_ID") or _env("USER_ID"),
+        "user_id": user_id,
+        "user_id_source": user_id_source,
         "dry_run": _env_bool("RABBITMQ_DRY_RUN"),
     }
 
@@ -213,15 +239,15 @@ def publish_training_status(
 
 def publish_sse_log(
     message: str,
-    user_id: str | None = None,
+    user_id: str | int | None = None,
     sse_type: str = DEFAULT_SSE_TYPE,
     dry_run: bool | None = None,
 ) -> dict:
     config = _rabbitmq_config()
     effective_dry_run = config["dry_run"] if dry_run is None else dry_run
-    effective_user_id = user_id or config["user_id"]
-    if not effective_user_id:
-        raise ValueError("ADMIN_USER_ID or USER_ID is required for SSE log publish.")
+    raw_user_id = user_id if user_id is not None else config["user_id"]
+    user_id_source = "user_id" if user_id is not None else config["user_id_source"]
+    effective_user_id = _parse_sse_user_id(raw_user_id, user_id_source)
 
     payload = {
         "user_id": effective_user_id,
@@ -249,7 +275,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--job-id", required=True)
-    parser.add_argument("--user-id", default=_env("ADMIN_USER_ID") or _env("USER_ID") or "admin")
+    parser.add_argument("--user-id", default=_env("ADMIN_USER_ID") or _env("USER_ID"))
     return parser.parse_args()
 
 

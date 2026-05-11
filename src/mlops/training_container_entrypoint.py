@@ -24,12 +24,20 @@ from src.mlops.training_events import publish_sse_log, publish_training_status
 
 DEFAULT_DOWNLOADED_DATASET_DIR = Path("/opt/ml/input/data")
 DEFAULT_OUTPUT_DIR = Path("/opt/ml/model")
-LATEST_POINTER_KEY = "models/latest.json"
+DEFAULT_S3_MODEL_PREFIX = "models"
 
 
 def _env(name: str) -> str | None:
     value = os.getenv(name)
     return value if value else None
+
+
+def _first_env(*names: str) -> str | None:
+    for name in names:
+        value = _env(name)
+        if value:
+            return value
+    return None
 
 
 def _env_path(name: str) -> Path | None:
@@ -44,12 +52,23 @@ def _parse_s3_uri(s3_uri: str) -> tuple[str, str]:
     return parsed.netloc, parsed.path.lstrip("/")
 
 
-def _join_s3_prefix(prefix: str, model_version: str) -> str:
+def build_model_artifact_prefix(prefix: str, model_version: str) -> str:
     normalized_prefix = prefix.strip("/")
     normalized_version = model_version.strip("/")
+    if not normalized_version:
+        raise ValueError("model_version must not be empty.")
     if not normalized_prefix:
         return normalized_version
+    if normalized_prefix.split("/")[-1] == normalized_version:
+        return normalized_prefix
     return f"{normalized_prefix}/{normalized_version}"
+
+
+def build_latest_pointer_key(prefix: str) -> str:
+    normalized_prefix = prefix.strip("/")
+    if not normalized_prefix:
+        return "latest.json"
+    return f"{normalized_prefix}/latest.json"
 
 
 def _utc_now() -> str:
@@ -126,13 +145,15 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run model training inside a SageMaker Training container and upload artifacts to S3."
     )
-    parser.add_argument("--job-id", default=_env("JOB_ID"))
+    parser.add_argument("--job-id", default=_first_env("JOB_ID", "TRAINING_JOB_NAME", "SM_TRAINING_JOB_NAME"))
+    parser.add_argument("--training-job-name", default=_first_env("TRAINING_JOB_NAME", "SM_TRAINING_JOB_NAME"))
     parser.add_argument("--dataset-path", type=Path, default=_env_path("DATASET_PATH"))
     parser.add_argument("--dataset-s3-uri", default=_env("DATASET_S3_URI"))
     parser.add_argument("--model-version", default=_env("MODEL_VERSION"))
     parser.add_argument("--output-dir", type=Path, default=_env_path("OUTPUT_DIR") or DEFAULT_OUTPUT_DIR)
-    parser.add_argument("--s3-bucket", default=_env("S3_BUCKET"))
-    parser.add_argument("--s3-model-prefix", default=_env("S3_MODEL_PREFIX"))
+    parser.add_argument("--s3-bucket", default=_first_env("S3_BUCKET", "S3_MODEL_BUCKET"))
+    parser.add_argument("--s3-model-prefix", default=_first_env("S3_MODEL_PREFIX", "MODEL_S3_PREFIX") or DEFAULT_S3_MODEL_PREFIX)
+    parser.add_argument("--aws-region", default=_env("AWS_REGION") or "ap-northeast-2")
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -166,12 +187,16 @@ def _validate_required_args(args: argparse.Namespace) -> None:
 def build_dry_run_plan(args: argparse.Namespace) -> dict:
     _validate_required_args(args)
     dataset_path = _resolve_dataset_path(args.dataset_path, args.dataset_s3_uri)
-    artifact_prefix = _join_s3_prefix(args.s3_model_prefix, args.model_version)
+    artifact_prefix = build_model_artifact_prefix(args.s3_model_prefix, args.model_version)
     artifact_s3_uri = f"s3://{args.s3_bucket}/{artifact_prefix}/"
+    latest_pointer_key = build_latest_pointer_key(args.s3_model_prefix)
 
     return {
         "dry_run": True,
         "job_id": args.job_id,
+        "training_job_name": args.training_job_name,
+        "model_version": args.model_version,
+        "aws_region": args.aws_region,
         "dataset": {
             "s3_uri": args.dataset_s3_uri,
             "local_path": str(dataset_path),
@@ -196,16 +221,19 @@ def build_dry_run_plan(args: argparse.Namespace) -> dict:
         },
         "latest_pointer": {
             "will_update": True,
-            "s3_uri": f"s3://{args.s3_bucket}/{LATEST_POINTER_KEY}",
+            "key": latest_pointer_key,
+            "s3_uri": f"s3://{args.s3_bucket}/{latest_pointer_key}",
         },
     }
 
 
 def run_container_training(args: argparse.Namespace) -> dict:
     _validate_required_args(args)
+    os.environ.setdefault("AWS_REGION", args.aws_region)
     dataset_path = _resolve_dataset_path(args.dataset_path, args.dataset_s3_uri)
-    artifact_prefix = _join_s3_prefix(args.s3_model_prefix, args.model_version)
+    artifact_prefix = build_model_artifact_prefix(args.s3_model_prefix, args.model_version)
     artifact_s3_uri = f"s3://{args.s3_bucket}/{artifact_prefix}/"
+    latest_pointer_key = build_latest_pointer_key(args.s3_model_prefix)
 
     try:
         safe_publish_sse_log("[INFO] Training job started")
@@ -254,7 +282,7 @@ def run_container_training(args: argparse.Namespace) -> dict:
         latest_pointer_upload = upload_json_to_s3(
             payload=latest_pointer_payload,
             bucket=args.s3_bucket,
-            key=LATEST_POINTER_KEY,
+            key=latest_pointer_key,
         )
         safe_publish_training_status(
             args.job_id,
@@ -266,6 +294,8 @@ def run_container_training(args: argparse.Namespace) -> dict:
         return {
             "dry_run": False,
             "job_id": args.job_id,
+            "training_job_name": args.training_job_name,
+            "model_version": args.model_version,
             "dataset_download": dataset_download,
             "training_result": training_result,
             "validation": validation,

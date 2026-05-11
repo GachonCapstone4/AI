@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Iterable
 
 
+DEFAULT_AWS_REGION = "ap-northeast-2"
 REQUIRED_ARTIFACT_PATHS = (
     "sbert",
     "domain_model.pkl",
@@ -12,6 +14,10 @@ REQUIRED_ARTIFACT_PATHS = (
     "metrics.json",
     "config.json",
     "label_mapping.json",
+)
+REQUIRED_SBERT_FILES = (
+    "sbert/model.safetensors",
+    "sbert/tokenizer.json",
 )
 
 
@@ -31,6 +37,13 @@ def _s3_key(prefix: str, relative_path: Path) -> str:
     if not normalized_prefix:
         return relative_key
     return f"{normalized_prefix}/{relative_key}"
+
+
+def _s3_client():
+    import boto3
+
+    region = os.getenv("AWS_REGION") or DEFAULT_AWS_REGION
+    return boto3.client("s3", region_name=region)
 
 
 def plan_directory_upload(local_dir: str | Path, bucket: str, prefix: str) -> dict:
@@ -66,9 +79,7 @@ def plan_directory_upload(local_dir: str | Path, bucket: str, prefix: str) -> di
 def upload_directory_to_s3(local_dir: str | Path, bucket: str, prefix: str) -> dict:
     plan = plan_directory_upload(local_dir, bucket, prefix)
 
-    import boto3
-
-    s3_client = boto3.client("s3")
+    s3_client = _s3_client()
     uploaded_files = []
     for file_info in plan["files"]:
         s3_client.upload_file(file_info["local_path"], bucket, file_info["key"])
@@ -83,10 +94,8 @@ def upload_directory_to_s3(local_dir: str | Path, bucket: str, prefix: str) -> d
 
 
 def upload_json_to_s3(payload: dict, bucket: str, key: str) -> dict:
-    import boto3
-
     body = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
-    s3_client = boto3.client("s3")
+    s3_client = _s3_client()
     s3_client.put_object(
         Bucket=bucket,
         Key=key,
@@ -104,22 +113,18 @@ def upload_json_to_s3(payload: dict, bucket: str, key: str) -> dict:
 
 
 def download_json_from_s3(bucket: str, key: str) -> dict:
-    import boto3
-
-    s3_client = boto3.client("s3")
+    s3_client = _s3_client()
     response = s3_client.get_object(Bucket=bucket, Key=key)
     body = response["Body"].read().decode("utf-8")
     return json.loads(body)
 
 
 def download_directory_from_s3(bucket: str, prefix: str, local_dir: str | Path) -> dict:
-    import boto3
-
     normalized_prefix = _normalize_prefix(prefix)
     local_path = Path(local_dir)
     local_path.mkdir(parents=True, exist_ok=True)
 
-    s3_client = boto3.client("s3")
+    s3_client = _s3_client()
     paginator = s3_client.get_paginator("list_objects_v2")
     list_prefix = f"{normalized_prefix}/" if normalized_prefix else ""
 
@@ -175,6 +180,13 @@ def validate_model_artifact_dir(local_dir: str | Path) -> dict:
             continue
         validated_paths.append(relative_name)
 
+    for relative_name in REQUIRED_SBERT_FILES:
+        path = local_path / relative_name
+        if not path.is_file():
+            missing_paths.append(relative_name)
+            continue
+        validated_paths.append(relative_name)
+
     if missing_paths:
         missing = ", ".join(missing_paths)
         raise FileNotFoundError(
@@ -190,6 +202,7 @@ def validate_model_artifact_dir(local_dir: str | Path) -> dict:
         "valid": True,
         "local_dir": str(local_path),
         "required_paths": list(REQUIRED_ARTIFACT_PATHS),
+        "required_sbert_files": list(REQUIRED_SBERT_FILES),
         "validated_paths": validated_paths,
         "file_count": len(files),
         "files": files,
