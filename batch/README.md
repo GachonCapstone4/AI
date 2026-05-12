@@ -9,7 +9,7 @@ DB에서 학습 데이터 추출 → CSV 생성 → S3 업로드 → SSE 로그 
 2. CSV 파일 생성 (emailId, threadId, from, subject, body, email_text, domain, intent)
 3. S3 업로드 (s3://capstone-gachon/dataset/dataset_new.csv)
 4. 진행 로그 → x.sse.fanout 발행
-5. 완료/실패 이벤트 → q.2app.training 발행 (status: COMPLETED / FAILED)
+5. 완료/실패 이벤트 → x.ai2app.direct / app.training 발행 (q.2app.training에서 처리, status: COMPLETED / FAILED)
 ```
 
 ## 필수 환경변수

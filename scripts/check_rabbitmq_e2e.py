@@ -29,14 +29,15 @@ SSE_EXCHANGE = "x.sse.fanout"
 CLASSIFY_IN_QUEUE = "q.2ai.classify"
 CLASSIFY_OUT_QUEUE = "q.2app.classify"
 DEPLOYMENT_IN_QUEUE = "q.ai.deployment"
-DEPLOYMENT_OUT_QUEUE = "q.2app.deployment"
+JOB_STATUS_QUEUE = "q.2app.training"
+DEPLOYMENT_OUT_QUEUE = JOB_STATUS_QUEUE
 TRAINING_QUEUE = "q.2app.training"
 
 CLASSIFY_IN_RK = "2ai.classify"
 CLASSIFY_OUT_RK = "2app.classify"
 DEPLOYMENT_IN_RK = "deployment"
-DEPLOYMENT_OUT_RK = "q.2app.deployment"
-TRAINING_RK = "q.2app.training"
+DEPLOYMENT_OUT_RK = "app.training"
+TRAINING_RK = "app.training"
 
 LONG_LOG_FIELDS = {"data", "message", "stdout", "stderr"}
 
@@ -76,7 +77,6 @@ def _declare_topology(conn, ch):
     ch = _ensure_queue_binding(conn, ch, CLASSIFY_IN_QUEUE, APP2AI_EXCHANGE, CLASSIFY_IN_RK)
     ch = _ensure_queue_binding(conn, ch, CLASSIFY_OUT_QUEUE, AI2APP_EXCHANGE, CLASSIFY_OUT_RK)
     ch = _ensure_queue_binding(conn, ch, DEPLOYMENT_IN_QUEUE, APP2AI_EXCHANGE, DEPLOYMENT_IN_RK)
-    ch = _ensure_queue(conn, ch, DEPLOYMENT_OUT_QUEUE)
     ch = _ensure_queue_binding(conn, ch, TRAINING_QUEUE, AI2APP_EXCHANGE, TRAINING_RK)
     return ch
 
@@ -398,12 +398,12 @@ def check_deployment_request(ch, test_id: str, timeout: float) -> None:
 
 
 def check_deployment_status(ch, test_id: str, timeout: float) -> None:
-    label = f"default exchange -> {DEPLOYMENT_OUT_QUEUE}"
+    label = f"{AI2APP_EXCHANGE} -> {DEPLOYMENT_OUT_QUEUE}"
     payload = _deployment_status_payload(test_id)
     received = _publish_and_consume_matching(
         ch,
         DEPLOYMENT_OUT_QUEUE,
-        lambda: _publish_json(ch, "", DEPLOYMENT_OUT_RK, payload),
+        lambda: _publish_json(ch, AI2APP_EXCHANGE, DEPLOYMENT_OUT_RK, payload),
         lambda item: item.get("_e2e_id") == test_id,
         timeout,
     )
@@ -495,9 +495,9 @@ def check_deployment_request_topology(ch, test_id: str) -> None:
 
 
 def check_deployment_status_topology(ch, test_id: str) -> None:
-    label = f"default exchange -> {DEPLOYMENT_OUT_QUEUE}"
+    label = f"{AI2APP_EXCHANGE} -> {DEPLOYMENT_OUT_QUEUE}"
     payload = _deployment_status_payload(test_id)
-    _check_publish_routable(ch, "", DEPLOYMENT_OUT_RK, payload, label)
+    _check_publish_routable(ch, AI2APP_EXCHANGE, DEPLOYMENT_OUT_RK, payload, label)
     _print_queue_state(ch, DEPLOYMENT_OUT_QUEUE)
     _pass(label)
 

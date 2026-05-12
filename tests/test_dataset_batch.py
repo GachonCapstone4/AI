@@ -34,6 +34,18 @@ def _stub_missing_batch_dependencies():
 class _FakeChannel:
     def __init__(self):
         self.published = None
+        self.exchange_declarations = []
+        self.queue_declarations = []
+        self.bindings = []
+
+    def exchange_declare(self, **kwargs):
+        self.exchange_declarations.append(kwargs)
+
+    def queue_declare(self, **kwargs):
+        self.queue_declarations.append(kwargs)
+
+    def queue_bind(self, **kwargs):
+        self.bindings.append(kwargs)
 
     def basic_publish(self, **kwargs):
         self.published = kwargs
@@ -108,6 +120,44 @@ def test_dataset_sse_log_uses_collecting_sse_type(monkeypatch):
         "data": "[INFO] DB 데이터 추출 시작",
     }
     assert isinstance(payload["user_id"], int)
+
+
+def test_dataset_training_event_uses_admin_status_route(monkeypatch):
+    _stub_missing_batch_dependencies()
+    import batch.dataset_batch as dataset_batch
+
+    monkeypatch.setattr(dataset_batch, "JOB_ID", "collect-1")
+    channel = _FakeChannel()
+
+    dataset_batch.publish_training_event(
+        channel,
+        status="COMPLETED",
+        dataset_version="v2026-05-12-120000",
+    )
+
+    payload = json.loads(channel.published["body"])
+    assert channel.exchange_declarations == [
+        {
+            "exchange": "x.ai2app.direct",
+            "exchange_type": "direct",
+            "durable": True,
+        }
+    ]
+    assert channel.queue_declarations == [
+        {"queue": "q.2app.training", "durable": True}
+    ]
+    assert channel.bindings == [
+        {
+            "queue": "q.2app.training",
+            "exchange": "x.ai2app.direct",
+            "routing_key": "app.training",
+        }
+    ]
+    assert channel.published["exchange"] == "x.ai2app.direct"
+    assert channel.published["routing_key"] == "app.training"
+    assert payload["job_id"] == "collect-1"
+    assert payload["status"] == "COMPLETED"
+    assert payload["dataset_version"] == "v2026-05-12-120000"
 
 
 def test_dataset_sse_log_rejects_non_integer_user_id(monkeypatch):

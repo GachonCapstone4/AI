@@ -14,6 +14,7 @@ DEFAULT_RABBITMQ_PORT = 30672
 DEFAULT_RABBITMQ_USERNAME = "admin"
 DEFAULT_RABBITMQ_PASSWORD = "admin1234!"
 DEFAULT_TRAINING_STATUS_QUEUE = "q.2app.training"
+DEFAULT_TRAINING_STATUS_ROUTING_KEY = "app.training"
 DEFAULT_AI2APP_EXCHANGE = "x.ai2app.direct"
 DEFAULT_SSE_EXCHANGE = "x.sse.fanout"
 DEFAULT_SSE_TYPE = "ai-training-updated"
@@ -90,6 +91,9 @@ def _rabbitmq_config() -> dict:
         "training_status_queue": (
             _env("TRAINING_STATUS_QUEUE") or DEFAULT_TRAINING_STATUS_QUEUE
         ),
+        "training_status_routing_key": (
+            _env("TRAINING_STATUS_ROUTING_KEY") or DEFAULT_TRAINING_STATUS_ROUTING_KEY
+        ),
         "ai2app_exchange": _env("AI2APP_EXCHANGE") or DEFAULT_AI2APP_EXCHANGE,
         "sse_exchange": _env("SSE_EXCHANGE") or DEFAULT_SSE_EXCHANGE,
         "user_id": user_id,
@@ -98,7 +102,12 @@ def _rabbitmq_config() -> dict:
     }
 
 
-def _publish_queue_message(config: dict, queue_name: str, payload: dict) -> None:
+def _publish_queue_message(
+    config: dict,
+    queue_name: str,
+    routing_key: str,
+    payload: dict,
+) -> None:
     if not config["host"]:
         raise ValueError("RABBITMQ_HOST is required for RabbitMQ publish.")
 
@@ -122,11 +131,11 @@ def _publish_queue_message(config: dict, queue_name: str, payload: dict) -> None
         channel.queue_bind(
             queue=queue_name,
             exchange=config["ai2app_exchange"],
-            routing_key=queue_name,
+            routing_key=routing_key,
         )
         channel.basic_publish(
             exchange=config["ai2app_exchange"],
-            routing_key=queue_name,
+            routing_key=routing_key,
             body=json.dumps(payload, ensure_ascii=False),
             properties=pika.BasicProperties(
                 content_type="application/json",
@@ -222,17 +231,18 @@ def publish_training_status(
         raise ValueError(f"Unsupported training status: {status}")
 
     queue_name = config["training_status_queue"]
+    routing_key = config["training_status_routing_key"]
     if effective_dry_run:
-        _print_dry_run("queue", queue_name, payload)
+        _print_dry_run("direct_exchange", config["ai2app_exchange"], payload)
     else:
-        _publish_queue_message(config, queue_name, payload)
+        _publish_queue_message(config, queue_name, routing_key, payload)
 
     return {
         "published": not effective_dry_run,
         "dry_run": effective_dry_run,
         "queue": queue_name,
         "exchange": config["ai2app_exchange"],
-        "routing_key": queue_name,
+        "routing_key": routing_key,
         "payload": payload,
     }
 

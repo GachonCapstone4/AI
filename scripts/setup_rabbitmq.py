@@ -45,8 +45,7 @@ QUEUES = [
     ("q.2ai.classify",  "x.app2ai.direct", "2ai.classify"),
     ("q.2app.classify", "x.ai2app.direct", "2app.classify"),
     ("q.ai.deployment", "x.app2ai.direct", "deployment"),
-    ("q.2app.deployment", None, "q.2app.deployment"),
-    ("q.2app.training", "x.ai2app.direct", "q.2app.training"),
+    ("q.2app.training", "x.ai2app.direct", "app.training"),
 ]
 
 

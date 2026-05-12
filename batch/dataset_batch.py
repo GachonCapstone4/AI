@@ -4,7 +4,7 @@
 - CSV 파일 생성
 - S3 업로드
 - SSE 로그 발행 (x.sse.fanout)
-- 완료 이벤트 발행 (q.2app.training)
+- 완료 이벤트 발행 (x.ai2app.direct / app.training -> q.2app.training)
 
 환경변수:
     DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME
@@ -86,7 +86,9 @@ RABBITMQ_REQUIRED_ENV_VARS = (
 
 # RabbitMQ 상수
 EXCHANGE_SSE_FANOUT   = "x.sse.fanout"
+EXCHANGE_AI2APP_DIRECT = "x.ai2app.direct"
 QUEUE_TRAINING_RESULT = "q.2app.training"
+ROUTING_KEY_TRAINING_RESULT = "app.training"
 DEFAULT_SSE_TYPE      = "ai-training-updated"
 DATASET_SSE_TYPE      = "ai-collecting-updated"
 
@@ -166,10 +168,20 @@ def publish_training_event(channel, status: str, error_message: str = None, data
         payload["error_message"] = error_message
 
     try:
+        channel.exchange_declare(
+            exchange=EXCHANGE_AI2APP_DIRECT,
+            exchange_type="direct",
+            durable=True,
+        )
         channel.queue_declare(queue=QUEUE_TRAINING_RESULT, durable=True)
+        channel.queue_bind(
+            queue=QUEUE_TRAINING_RESULT,
+            exchange=EXCHANGE_AI2APP_DIRECT,
+            routing_key=ROUTING_KEY_TRAINING_RESULT,
+        )
         channel.basic_publish(
-            exchange="",
-            routing_key=QUEUE_TRAINING_RESULT,
+            exchange=EXCHANGE_AI2APP_DIRECT,
+            routing_key=ROUTING_KEY_TRAINING_RESULT,
             body=json.dumps(payload, ensure_ascii=False),
             properties=pika.BasicProperties(
                 content_type="application/json",

@@ -10,6 +10,7 @@ def _clear_training_env(monkeypatch):
         "RABBITMQ_USERNAME",
         "RABBITMQ_PASSWORD",
         "TRAINING_STATUS_QUEUE",
+        "TRAINING_STATUS_ROUTING_KEY",
         "AI2APP_EXCHANGE",
         "SSE_EXCHANGE",
         "ADMIN_USER_ID",
@@ -31,7 +32,7 @@ def test_training_status_running_is_summary_event_only(monkeypatch):
 
     assert result["queue"] == "q.2app.training"
     assert result["exchange"] == "x.ai2app.direct"
-    assert result["routing_key"] == "q.2app.training"
+    assert result["routing_key"] == "app.training"
     assert result["payload"] == {
         "job_id": "train-1",
         "status": "RUNNING",

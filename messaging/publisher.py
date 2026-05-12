@@ -3,7 +3,7 @@
 #
 # Exchange : x.ai2app.direct
 # Routing  : 2app.classify -> q.2app.classify (pre-created binding)
-#            q.2app.deployment via default exchange
+#            app.training -> q.2app.training (job status events)
 # ============================================================
 
 import json
@@ -13,7 +13,9 @@ from messaging.structured_log import get_logger
 from src.settings import get_settings
 
 AI2APP_EXCHANGE = "x.ai2app.direct"
-DEPLOYMENT_STATUS_QUEUE = "q.2app.deployment"
+JOB_STATUS_QUEUE = "q.2app.training"
+JOB_STATUS_ROUTING_KEY = "app.training"
+DEPLOYMENT_STATUS_QUEUE = JOB_STATUS_QUEUE
 
 _PROPS = pika.BasicProperties(
     content_type="application/json",
@@ -57,16 +59,16 @@ def publish(channel: pika.channel.Channel, routing_key: str, message: dict) -> N
 def publish_deployment_status(channel: pika.channel.Channel, message: dict) -> None:
     body = json.dumps(message, ensure_ascii=False).encode("utf-8")
     channel.basic_publish(
-        exchange="",
-        routing_key=DEPLOYMENT_STATUS_QUEUE,
+        exchange=AI2APP_EXCHANGE,
+        routing_key=JOB_STATUS_ROUTING_KEY,
         body=body,
         properties=_PROPS,
         mandatory=True,
     )
     log.info(
         "published",
-        exchange="",
-        routing_key=DEPLOYMENT_STATUS_QUEUE,
+        exchange=AI2APP_EXCHANGE,
+        routing_key=JOB_STATUS_ROUTING_KEY,
         job_id=message.get("job_id", "(unknown)"),
         status=message.get("status", "ok"),
     )

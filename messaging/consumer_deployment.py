@@ -2,7 +2,7 @@
 # deployment consumer
 #
 # Consume : q.ai.deployment    (x.app2ai.direct, routing key: deployment)
-# Publish : q.2app.deployment  (default exchange)
+# Publish : q.2app.training    (x.ai2app.direct, routing key: app.training)
 #
 # The consumer reuses the same ModelManager instance as the HTTP
 # /deployment/preload, /validate, /switch API.
@@ -30,7 +30,7 @@ from messaging.structured_log import get_logger
 from src.settings import get_settings
 
 CONSUME_QUEUE = "q.ai.deployment"
-PUBLISH_QUEUE = "q.2app.deployment"
+PUBLISH_QUEUE = "q.2app.training"
 SOURCE_EXCHANGE = "x.app2ai.direct"
 SOURCE_ROUTING_KEY = "deployment"
 PREFETCH_COUNT = 1
