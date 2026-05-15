@@ -4,14 +4,14 @@
 - CSV 파일 생성
 - S3 업로드
 - SSE 로그 발행 (x.sse.fanout)
-- 완료 이벤트 발행 (x.ai2app.direct / app.training -> q.2app.training)
+- 완료 이벤트 발행 (q.2app.training)
 
 환경변수:
     DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME
     AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
     S3_BUCKET, S3_DATASET_KEY
     RABBITMQ_HOST, RABBITMQ_PORT, RABBITMQ_USERNAME, RABBITMQ_PASSWORD
-    JOB_ID, ADMIN_USER_ID
+    ADMIN_USER_ID
 """
 
 import os
@@ -56,11 +56,10 @@ RABBITMQ_PORT     = os.environ.get("RABBITMQ_PORT")
 RABBITMQ_USERNAME = os.environ.get("RABBITMQ_USERNAME")
 RABBITMQ_PASSWORD = os.environ.get("RABBITMQ_PASSWORD")
 
-JOB_ID        = os.environ.get("JOB_ID")
+JOB_ID        = datetime.now(timezone.utc).strftime("collecting-job-%Y%m%d-%H%M%S")
 ADMIN_USER_ID = os.environ.get("ADMIN_USER_ID")
 
 REQUIRED_ENV_VARS = (
-    "JOB_ID",
     "ADMIN_USER_ID",
     "AWS_ACCESS_KEY_ID",
     "AWS_SECRET_ACCESS_KEY",
@@ -76,7 +75,6 @@ REQUIRED_ENV_VARS = (
 )
 
 RABBITMQ_REQUIRED_ENV_VARS = (
-    "JOB_ID",
     "ADMIN_USER_ID",
     "RABBITMQ_HOST",
     "RABBITMQ_PORT",
@@ -86,9 +84,7 @@ RABBITMQ_REQUIRED_ENV_VARS = (
 
 # RabbitMQ 상수
 EXCHANGE_SSE_FANOUT   = "x.sse.fanout"
-EXCHANGE_AI2APP_DIRECT = "x.ai2app.direct"
 QUEUE_TRAINING_RESULT = "q.2app.training"
-ROUTING_KEY_TRAINING_RESULT = "app.training"
 DEFAULT_SSE_TYPE      = "ai-training-updated"
 DATASET_SSE_TYPE      = "ai-collecting-updated"
 
@@ -159,6 +155,7 @@ def publish_sse_log(channel, message: str, sse_type: str = DEFAULT_SSE_TYPE):
 def publish_training_event(channel, status: str, error_message: str = None, dataset_version: str = None):
     payload = {
         "job_id": JOB_ID,
+        "job_type": "dataset",
         "status": status,
         "finished_at": datetime.now(timezone.utc).isoformat()
     }
@@ -168,20 +165,10 @@ def publish_training_event(channel, status: str, error_message: str = None, data
         payload["error_message"] = error_message
 
     try:
-        channel.exchange_declare(
-            exchange=EXCHANGE_AI2APP_DIRECT,
-            exchange_type="direct",
-            durable=True,
-        )
         channel.queue_declare(queue=QUEUE_TRAINING_RESULT, durable=True)
-        channel.queue_bind(
-            queue=QUEUE_TRAINING_RESULT,
-            exchange=EXCHANGE_AI2APP_DIRECT,
-            routing_key=ROUTING_KEY_TRAINING_RESULT,
-        )
         channel.basic_publish(
-            exchange=EXCHANGE_AI2APP_DIRECT,
-            routing_key=ROUTING_KEY_TRAINING_RESULT,
+            exchange="",
+            routing_key=QUEUE_TRAINING_RESULT,
             body=json.dumps(payload, ensure_ascii=False),
             properties=pika.BasicProperties(
                 content_type="application/json",
@@ -210,23 +197,23 @@ def fetch_training_data():
     cursor = conn.cursor(dictionary=True)
 
     query = """
-        SELECT
-            CONCAT('train_', e.email_id) AS emailId,
-            e.external_msg_id            AS threadId,
-            e.sender_email               AS `from`,
-            e.subject                    AS subject,
-            e.body_clean                 AS body,
-            ear.domain                   AS domain,
+            SELECT
+                CONCAT('train_', e.email_id) AS emailId,
+                e.external_msg_id            AS threadId,
+                e.sender_email               AS `from`,
+                e.subject                    AS subject,
+                e.body_clean                 AS body,
+                ear.domain                   AS domain,
             ear.intent                   AS intent
-        FROM emails e
-        INNER JOIN email_analysis_results ear
+            FROM emails e
+                INNER JOIN email_analysis_results ear
             ON e.email_id = ear.email_id
-        WHERE ear.domain IS NOT NULL
-          AND ear.intent IS NOT NULL
-          AND e.body_clean IS NOT NULL
-          AND e.body_clean != ''
-        ORDER BY e.email_id ASC
-    """
+            WHERE ear.domain IS NOT NULL
+              AND ear.intent IS NOT NULL
+              AND e.body_clean IS NOT NULL
+              AND e.body_clean != ''
+            ORDER BY e.email_id ASC \
+            """
     cursor.execute(query)
     rows = cursor.fetchall()
 
@@ -298,7 +285,7 @@ def main():
         # 2. CSV 생성
         publish_sse_log(channel, "[INFO] CSV 파일 변환 중", sse_type=DATASET_SSE_TYPE)
         with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".csv", delete=False, encoding="utf-8"
+                mode="w", suffix=".csv", delete=False, encoding="utf-8"
         ) as tmp:
             tmp_path = tmp.name
 
