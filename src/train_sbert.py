@@ -3,6 +3,9 @@
 # ============================================================
 
 import math
+import shutil
+from pathlib import Path
+
 import numpy as np
 from torch.utils.data import DataLoader
 from sentence_transformers import SentenceTransformer, losses, evaluation
@@ -14,6 +17,105 @@ from config import (
     EMBEDDINGS_FINETUNED_PATH,
 )
 from data_utils import load_pairs_csv, split_pairs, save_embeddings
+
+
+SBERT_WEIGHT_FILES = ("model.safetensors", "pytorch_model.bin")
+SBERT_ROOT_REQUIRED_FILES = ("modules.json", "tokenizer.json")
+SBERT_CONFIG_CANDIDATES = (
+    "config.json",
+    "config_sentence_transformers.json",
+    "0_Transformer/config.json",
+)
+
+
+def _log_directory_tree(root: str | Path, label: str) -> None:
+    root_path = Path(root)
+    print(f"[{label}] directory tree: {root_path}", flush=True)
+    if not root_path.exists():
+        print(f"[{label}] MISSING: {root_path}", flush=True)
+        return
+
+    for path in sorted(root_path.rglob("*")):
+        relative = path.relative_to(root_path).as_posix()
+        suffix = "/" if path.is_dir() else f" ({path.stat().st_size} bytes)"
+        print(f"[{label}]   {relative}{suffix}", flush=True)
+
+
+def _copy_transformer_core_files_to_root(output_dir: Path) -> None:
+    """Expose core transformer files at the SBERT root for preload validators."""
+    transformer_dir = output_dir / "0_Transformer"
+    if not transformer_dir.is_dir():
+        return
+
+    for filename in (*SBERT_WEIGHT_FILES, "tokenizer.json", "config.json"):
+        source = transformer_dir / filename
+        destination = output_dir / filename
+        if source.is_file() and not destination.exists():
+            shutil.copy2(source, destination)
+
+
+def _missing_sbert_artifact_paths(output_dir: str | Path) -> list[str]:
+    output_path = Path(output_dir)
+    missing: list[str] = []
+
+    if not output_path.is_dir():
+        return [f"{output_path} (expected directory)"]
+
+    if not any((output_path / filename).is_file() for filename in SBERT_WEIGHT_FILES):
+        missing.append("model.safetensors or pytorch_model.bin")
+
+    for filename in SBERT_ROOT_REQUIRED_FILES:
+        if not (output_path / filename).is_file():
+            missing.append(filename)
+
+    if not any((output_path / filename).is_file() for filename in SBERT_CONFIG_CANDIDATES):
+        missing.append("config.json or config_sentence_transformers.json")
+
+    if not (output_path / "1_Pooling").is_dir():
+        missing.append("1_Pooling/")
+
+    return missing
+
+
+def _finalize_and_reload_sbert(model: SentenceTransformer, output_path: str | Path) -> SentenceTransformer:
+    output_dir = Path(output_path)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    _log_directory_tree(output_dir, "run_sbert_finetuning.after_fit")
+
+    # model.fit(save_best_model=True) should write the best evaluated model to
+    # output_path. Reload it first when possible, then save again to normalize
+    # the final root artifact. If the best model was not materialized, fall back
+    # to the in-memory final model instead of leaving only checkpoint files.
+    try:
+        model_to_save = SentenceTransformer(str(output_dir))
+        print(f"[run_sbert_finetuning] best model reload succeeded: {output_dir}", flush=True)
+    except Exception as exc:
+        print(
+            "[run_sbert_finetuning] best model reload failed before final save; "
+            f"saving in-memory model to output_path. error={exc}",
+            flush=True,
+        )
+        model_to_save = model
+
+    model_to_save.save(str(output_dir))
+    _copy_transformer_core_files_to_root(output_dir)
+
+    missing = _missing_sbert_artifact_paths(output_dir)
+    _log_directory_tree(output_dir, "run_sbert_finetuning.after_save")
+    if missing:
+        raise FileNotFoundError(
+            "Incomplete SBERT artifact at "
+            f"{output_dir}. Missing required paths: {', '.join(missing)}"
+        )
+
+    try:
+        reloaded = SentenceTransformer(str(output_dir))
+    except Exception as exc:
+        raise RuntimeError(f"Failed to reload finalized SBERT artifact from {output_dir}: {exc}") from exc
+
+    print(f"[run_sbert_finetuning] reload validation succeeded: {output_dir}", flush=True)
+    return reloaded
 
 
 def build_evaluator(val_examples: list) -> evaluation.EmbeddingSimilarityEvaluator:
@@ -50,8 +152,9 @@ def run_sbert_finetuning(
     evaluator        = build_evaluator(val_examples)
     warmup_steps     = math.ceil(len(train_dataloader) * epochs * warmup_ratio)
 
+    output_dir = Path(output_path)
     print(f"[run_sbert_finetuning] 배치: {len(train_dataloader)} | warmup: {warmup_steps}")
-    print(f"저장 경로: {output_path}\n")
+    print(f"[run_sbert_finetuning] output_path: {output_dir.resolve()}\n")
 
     model.fit(
         train_objectives  =[(train_dataloader, train_loss)],
@@ -59,13 +162,13 @@ def run_sbert_finetuning(
         evaluation_steps  =len(train_dataloader),
         epochs            =epochs,
         warmup_steps      =warmup_steps,
-        output_path       =output_path,
+        output_path       =str(output_dir),
         show_progress_bar =True,
         save_best_model   =True,
     )
 
-    print(f"[run_sbert_finetuning] 완료 → {output_path}")
-    return SentenceTransformer(output_path)
+    print(f"[run_sbert_finetuning] fit completed: {output_dir}")
+    return _finalize_and_reload_sbert(model, output_dir)
 
 
 def generate_embeddings(

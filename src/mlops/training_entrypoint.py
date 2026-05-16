@@ -100,6 +100,10 @@ def run_training(dataset_path: Path, output_dir: Path, model_version: str) -> di
     sbert_dir = artifact_paths["sbert_dir"]
     domain_model_path = artifact_paths["domain_model"]
     intent_model_path = artifact_paths["intent_model"]
+    print(f"[run_training] output_dir: {output_dir.resolve()}", flush=True)
+    print(f"[run_training] sbert_dir: {sbert_dir.resolve()}", flush=True)
+    print(f"[run_training] domain_model: {domain_model_path.resolve()}", flush=True)
+    print(f"[run_training] intent_model: {intent_model_path.resolve()}", flush=True)
 
     df = load_dataset(str(dataset_path))
     pairs = generate_contrastive_pairs(df)
@@ -109,6 +113,7 @@ def run_training(dataset_path: Path, output_dir: Path, model_version: str) -> di
         base_model=SBERT_BASE_MODEL,
         pairs=pairs,
     )
+    print(f"[run_training] SBERT artifact saved: {sbert_dir.resolve()}", flush=True)
     X = generate_embeddings(
         df["email_text"].tolist(),
         model_path=str(sbert_dir),

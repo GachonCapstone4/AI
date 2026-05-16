@@ -19,6 +19,9 @@ def _write_standard_artifact(root: Path) -> None:
     sbert_dir.mkdir(parents=True)
     (sbert_dir / "model.safetensors").write_bytes(b"model")
     (sbert_dir / "tokenizer.json").write_text("{}", encoding="utf-8")
+    (sbert_dir / "modules.json").write_text("[]", encoding="utf-8")
+    (sbert_dir / "config.json").write_text("{}", encoding="utf-8")
+    (sbert_dir / "1_Pooling").mkdir()
     (root / "domain_model.pkl").write_bytes(b"domain")
     (root / "intent_model.pkl").write_bytes(b"intent")
     (root / "label_mapping.json").write_text("{}", encoding="utf-8")
@@ -110,3 +113,15 @@ def test_validate_model_artifact_dir_requires_sbert_core_files(tmp_path: Path) -
 
     with pytest.raises(FileNotFoundError, match="sbert/tokenizer.json"):
         validate_model_artifact_dir(artifact_dir)
+
+
+def test_validate_model_artifact_dir_accepts_pytorch_model_bin(tmp_path: Path) -> None:
+    artifact_dir = tmp_path / "artifact"
+    _write_standard_artifact(artifact_dir)
+    (artifact_dir / "sbert" / "model.safetensors").unlink()
+    (artifact_dir / "sbert" / "pytorch_model.bin").write_bytes(b"model")
+
+    validation = validate_model_artifact_dir(artifact_dir)
+
+    assert validation["valid"] is True
+    assert "sbert/pytorch_model.bin" in validation["files"]

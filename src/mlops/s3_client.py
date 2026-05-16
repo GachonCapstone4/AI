@@ -16,8 +16,17 @@ REQUIRED_ARTIFACT_PATHS = (
     "label_mapping.json",
 )
 REQUIRED_SBERT_FILES = (
-    "sbert/model.safetensors",
     "sbert/tokenizer.json",
+    "sbert/modules.json",
+)
+REQUIRED_SBERT_WEIGHT_FILES = (
+    "sbert/model.safetensors",
+    "sbert/pytorch_model.bin",
+)
+REQUIRED_SBERT_CONFIG_FILES = (
+    "sbert/config.json",
+    "sbert/config_sentence_transformers.json",
+    "sbert/0_Transformer/config.json",
 )
 
 
@@ -180,12 +189,30 @@ def validate_model_artifact_dir(local_dir: str | Path) -> dict:
             continue
         validated_paths.append(relative_name)
 
+    if not any((local_path / relative_name).is_file() for relative_name in REQUIRED_SBERT_WEIGHT_FILES):
+        missing_paths.append("sbert/model.safetensors or sbert/pytorch_model.bin")
+    else:
+        validated_paths.append("sbert/model.safetensors or sbert/pytorch_model.bin")
+
     for relative_name in REQUIRED_SBERT_FILES:
         path = local_path / relative_name
         if not path.is_file():
             missing_paths.append(relative_name)
             continue
         validated_paths.append(relative_name)
+
+    if not any((local_path / relative_name).is_file() for relative_name in REQUIRED_SBERT_CONFIG_FILES):
+        missing_paths.append(
+            "sbert/config.json or sbert/config_sentence_transformers.json or sbert/0_Transformer/config.json"
+        )
+    else:
+        validated_paths.append("sbert/config.json family")
+
+    pooling_dir = local_path / "sbert" / "1_Pooling"
+    if not pooling_dir.is_dir():
+        missing_paths.append("sbert/1_Pooling/")
+    else:
+        validated_paths.append("sbert/1_Pooling")
 
     if missing_paths:
         missing = ", ".join(missing_paths)
@@ -203,6 +230,8 @@ def validate_model_artifact_dir(local_dir: str | Path) -> dict:
         "local_dir": str(local_path),
         "required_paths": list(REQUIRED_ARTIFACT_PATHS),
         "required_sbert_files": list(REQUIRED_SBERT_FILES),
+        "required_sbert_weight_files": list(REQUIRED_SBERT_WEIGHT_FILES),
+        "required_sbert_config_files": list(REQUIRED_SBERT_CONFIG_FILES),
         "validated_paths": validated_paths,
         "file_count": len(files),
         "files": files,
