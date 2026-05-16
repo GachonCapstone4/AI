@@ -32,8 +32,12 @@ from messaging.consumer_deployment import (
     PUBLISH_QUEUE,
     PUBLISH_ROUTING_KEY,
     CONSUME_QUEUE_ARGUMENTS,
+    SSE_EXCHANGE,
+    SSE_FAILURE_MESSAGE,
+    SSE_SUCCESS_MESSAGE,
     DeploymentConsumerRunner,
     declare_deployment_topology,
+    normalize_deployment_payload,
     process_deployment_message,
 )
 from messaging.publisher import (
@@ -322,7 +326,10 @@ class TestDeploymentMessageContracts:
         assert CONSUME_QUEUE == "q.2ai.deployment"
         assert SOURCE_EXCHANGE == "x.app2ai.direct"
         assert SOURCE_ROUTING_KEY == "2ai.deployment"
-        assert CONSUME_QUEUE_ARGUMENTS == {"x-dead-letter-exchange": "x.retry.direct"}
+        assert CONSUME_QUEUE_ARGUMENTS == {
+            "x-dead-letter-exchange": "x.retry.direct",
+            "x-dead-letter-routing-key": "2ai.deployment.retry",
+        }
         assert PUBLISH_EXCHANGE == "x.ai2app.direct"
         assert PUBLISH_QUEUE == "q.2app.training"
         assert PUBLISH_ROUTING_KEY == "app.training"
@@ -361,7 +368,10 @@ class TestDeploymentMessageContracts:
         assert {
             "queue": "q.2ai.deployment",
             "durable": True,
-            "arguments": {"x-dead-letter-exchange": "x.retry.direct"},
+            "arguments": {
+                "x-dead-letter-exchange": "x.retry.direct",
+                "x-dead-letter-routing-key": "2ai.deployment.retry",
+            },
         } in channel.queues
         assert {"queue": "q.2app.training", "durable": True} in channel.queues
         assert {
@@ -386,11 +396,12 @@ class TestDeploymentMessageContracts:
 
         assert payload.job_id == "deploy-2026-05-04-001"
         assert payload.model_version == "training-final-004"
-
-        with pytest.raises(ValidationError):
-            DeploymentRequest(job_id="deploy-1")
-        with pytest.raises(ValidationError):
-            DeploymentRequest(model_version="training-final-004")
+        admin_payload = DeploymentRequest(user_id=1, task_type="deployment")
+        assert admin_payload.user_id == 1
+        assert admin_payload.task_type == "deployment"
+        assert admin_payload.job_type is None
+        assert admin_payload.job_id is None
+        assert admin_payload.model_version is None
 
     def test_deployment_request_accepts_camel_case_aliases(self):
         payload = DeploymentRequest(
@@ -404,6 +415,25 @@ class TestDeploymentMessageContracts:
         assert payload.job_id == "deploy-1"
         assert payload.model_version == "training-final-004"
         assert payload.artifact_s3_uri == "s3://bucket/models/training-final-004/"
+
+    def test_deployment_request_generates_fallback_job_id_for_admin_payload(self):
+        payload = DeploymentRequest(user_id=1, task_type="deployment")
+
+        normalized = normalize_deployment_payload(payload)
+
+        assert normalized.job_id.startswith("deployment-1-")
+        assert normalized.model_version is None
+
+    def test_deployment_request_accepts_admin_model_job_payload(self):
+        payload = DeploymentRequest(user_id=1, task_type="deployment", job_type="model")
+
+        normalized = normalize_deployment_payload(payload)
+
+        assert normalized.user_id == 1
+        assert normalized.task_type == "deployment"
+        assert normalized.job_type == "model"
+        assert normalized.job_id.startswith("deployment-1-")
+        assert normalized.model_version is None
 
     def test_deployment_events_parse(self):
         running = DeploymentRunningEvent(
@@ -474,31 +504,115 @@ class TestDeploymentMessageContracts:
         )
 
         event = process_deployment_message(channel, manager, payload)
+        status_events = [
+            item for item in channel.published
+            if item["routing_key"] == "app.training"
+        ]
+        sse_events = [
+            item for item in channel.published
+            if item["exchange"] == SSE_EXCHANGE
+        ]
 
         assert manager.calls == [
             ("preload", "training-final-004"),
             ("validate", None),
             ("switch", None),
         ]
+        assert [item["body"]["status"] for item in status_events] == [
+            "RUNNING",
+            "RUNNING",
+            "RUNNING",
+            "COMPLETED",
+        ]
+        assert all("job_id" in item["body"] for item in status_events)
+        assert all("stage" in item["body"] for item in status_events)
+        assert all("model_version" in item["body"] for item in status_events)
+        assert all("error_message" in item["body"] for item in status_events)
+        assert all("finished_at" in item["body"] for item in status_events)
+        assert [item["body"].get("stage") for item in status_events[:3]] == [
+            "PRELOAD",
+            "VALIDATE",
+            "SWITCH",
+        ]
+        assert {item["exchange"] for item in status_events} == {AI2APP_EXCHANGE}
+        assert {item["routing_key"] for item in status_events} == {"app.training"}
+        assert len(sse_events) == 1
+        assert sse_events[0]["routing_key"] == ""
+        assert sse_events[0]["body"]["data"] == SSE_SUCCESS_MESSAGE
+        assert event["active_model_version"] == "training-final-004"
+
+    def test_sse_publish_failure_does_not_fail_completed_deployment(self):
+        class FakeChannel:
+            def __init__(self):
+                self.published = []
+
+            def basic_publish(self, **kwargs):
+                if kwargs["exchange"] == SSE_EXCHANGE:
+                    raise RuntimeError("sse down")
+                self.published.append(
+                    {
+                        "exchange": kwargs["exchange"],
+                        "routing_key": kwargs["routing_key"],
+                        "body": json.loads(kwargs["body"].decode("utf-8")),
+                    }
+                )
+
+        class FakeManager:
+            def preload(self, _version):
+                pass
+
+            def validate(self):
+                pass
+
+            def switch(self):
+                return {"status": "switched", "model_version": "training-final-004"}
+
+        channel = FakeChannel()
+        payload = DeploymentRequest(job_id="deploy-1", model_version="training-final-004")
+
+        event = process_deployment_message(channel, FakeManager(), payload)
+
+        assert event["status"] == "COMPLETED"
         assert [item["body"]["status"] for item in channel.published] == [
             "RUNNING",
             "RUNNING",
             "RUNNING",
             "COMPLETED",
         ]
-        assert all("job_id" in item["body"] for item in channel.published)
-        assert all("stage" in item["body"] for item in channel.published)
-        assert all("model_version" in item["body"] for item in channel.published)
-        assert all("error_message" in item["body"] for item in channel.published)
-        assert all("finished_at" in item["body"] for item in channel.published)
-        assert [item["body"].get("stage") for item in channel.published[:3]] == [
-            "PRELOAD",
-            "VALIDATE",
-            "SWITCH",
-        ]
-        assert {item["exchange"] for item in channel.published} == {AI2APP_EXCHANGE}
-        assert {item["routing_key"] for item in channel.published} == {"app.training"}
-        assert event["active_model_version"] == "training-final-004"
+
+    def test_process_deployment_without_model_version_uses_latest_preload_path(self):
+        class FakeChannel:
+            def __init__(self):
+                self.published = []
+
+            def basic_publish(self, **kwargs):
+                self.published.append(json.loads(kwargs["body"].decode("utf-8")))
+
+        class FakeManager:
+            def __init__(self):
+                self.calls = []
+
+            def preload(self, version):
+                self.calls.append(("preload", version))
+                return {"status": "preloaded", "model_version": "latest-from-json"}
+
+            def validate(self):
+                self.calls.append(("validate", None))
+
+            def switch(self):
+                self.calls.append(("switch", None))
+                return {"status": "switched", "model_version": "latest-from-json"}
+
+        channel = FakeChannel()
+        manager = FakeManager()
+        payload = DeploymentRequest(user_id=1, task_type="deployment")
+
+        event = process_deployment_message(channel, manager, payload)
+
+        assert manager.calls[0] == ("preload", None)
+        assert event["model_version"] is None
+        assert event["active_model_version"] == "latest-from-json"
+        assert channel.published[0]["job_id"].startswith("deployment-1-")
 
     def test_validate_failure_does_not_switch(self):
         class FakeChannel:
@@ -577,9 +691,189 @@ class TestDeploymentMessageContracts:
             ("switch", None),
         ]
         assert channel.acks == [11]
-        assert [event["stage"] for event in channel.published] == [
+        status_events = [event for event in channel.published if "stage" in event]
+        assert [event["stage"] for event in status_events] == [
             "PRELOAD",
             "VALIDATE",
             "SWITCH",
             "COMPLETED",
         ]
+
+    def test_deployment_callback_accepts_admin_payload_and_generates_job_id(self):
+        class FakeMethod:
+            delivery_tag = 12
+            routing_key = "2ai.deployment"
+            exchange = "x.app2ai.direct"
+            redelivered = False
+
+        class FakeChannel:
+            def __init__(self):
+                self.published = []
+                self.acks = []
+
+            def basic_publish(self, **kwargs):
+                self.published.append(json.loads(kwargs["body"].decode("utf-8")))
+
+            def basic_ack(self, delivery_tag):
+                self.acks.append(delivery_tag)
+
+        class FakeManager:
+            def __init__(self):
+                self.calls = []
+
+            def preload(self, version):
+                self.calls.append(("preload", version))
+
+            def validate(self):
+                self.calls.append(("validate", None))
+
+            def switch(self):
+                self.calls.append(("switch", None))
+                return {"status": "switched", "model_version": "latest-from-json"}
+
+        manager = FakeManager()
+        runner = DeploymentConsumerRunner(manager)
+        channel = FakeChannel()
+        body = json.dumps({"user_id": 1, "task_type": "deployment"}).encode("utf-8")
+
+        runner._callback(channel, FakeMethod(), None, body)
+
+        assert manager.calls[0] == ("preload", None)
+        assert channel.acks == [12]
+        assert channel.published[0]["job_id"].startswith("deployment-1-")
+        completed = [event for event in channel.published if event.get("status") == "COMPLETED"][0]
+        assert completed["active_model_version"] == "latest-from-json"
+        assert channel.published[-1]["data"] == SSE_SUCCESS_MESSAGE
+
+    def test_deployment_callback_accepts_admin_model_job_payload(self):
+        class FakeMethod:
+            delivery_tag = 14
+            routing_key = "2ai.deployment"
+            exchange = "x.app2ai.direct"
+            redelivered = False
+
+        class FakeChannel:
+            def __init__(self):
+                self.published = []
+                self.acks = []
+
+            def basic_publish(self, **kwargs):
+                self.published.append(json.loads(kwargs["body"].decode("utf-8")))
+
+            def basic_ack(self, delivery_tag):
+                self.acks.append(delivery_tag)
+
+        class FakeManager:
+            def __init__(self):
+                self.calls = []
+
+            def preload(self, version):
+                self.calls.append(("preload", version))
+
+            def validate(self):
+                self.calls.append(("validate", None))
+
+            def switch(self):
+                self.calls.append(("switch", None))
+                return {"status": "switched", "model_version": "latest-from-json"}
+
+        manager = FakeManager()
+        runner = DeploymentConsumerRunner(manager)
+        channel = FakeChannel()
+        body = json.dumps(
+            {"user_id": 1, "task_type": "deployment", "job_type": "model"}
+        ).encode("utf-8")
+
+        runner._callback(channel, FakeMethod(), None, body)
+
+        assert manager.calls == [
+            ("preload", None),
+            ("validate", None),
+            ("switch", None),
+        ]
+        assert channel.acks == [14]
+        completed = [event for event in channel.published if event.get("status") == "COMPLETED"][0]
+        assert completed["status"] == "COMPLETED"
+        assert channel.published[-1]["data"] == SSE_SUCCESS_MESSAGE
+
+    def test_deployment_callback_invalid_task_type_publishes_failed_and_acks(self):
+        class FakeMethod:
+            delivery_tag = 13
+            routing_key = "2ai.deployment"
+            exchange = "x.app2ai.direct"
+            redelivered = False
+
+        class FakeChannel:
+            def __init__(self):
+                self.published = []
+                self.acks = []
+
+            def basic_publish(self, **kwargs):
+                self.published.append(json.loads(kwargs["body"].decode("utf-8")))
+
+            def basic_ack(self, delivery_tag):
+                self.acks.append(delivery_tag)
+
+        class FakeManager:
+            def preload(self, _version):
+                raise AssertionError("preload must not run for invalid task_type")
+
+        runner = DeploymentConsumerRunner(FakeManager())
+        channel = FakeChannel()
+        body = json.dumps({"user_id": 1, "task_type": "collect"}).encode("utf-8")
+
+        runner._callback(channel, FakeMethod(), None, body)
+
+        assert channel.acks == [13]
+        status_events = [event for event in channel.published if event.get("status") == "FAILED"]
+        assert len(status_events) == 1
+        failed = status_events[0]
+        assert failed["job_id"].startswith("deployment-1-")
+        assert failed["status"] == "FAILED"
+        assert failed["model_version"] is None
+        assert failed["stage"] == "PARSE"
+        assert failed["error_message"] == "Unsupported deployment task_type: collect"
+        assert failed["finished_at"]
+        assert channel.published[-1]["data"] == SSE_FAILURE_MESSAGE
+
+    def test_deployment_callback_invalid_job_type_publishes_failed_and_acks(self):
+        class FakeMethod:
+            delivery_tag = 15
+            routing_key = "2ai.deployment"
+            exchange = "x.app2ai.direct"
+            redelivered = False
+
+        class FakeChannel:
+            def __init__(self):
+                self.published = []
+                self.acks = []
+
+            def basic_publish(self, **kwargs):
+                self.published.append(json.loads(kwargs["body"].decode("utf-8")))
+
+            def basic_ack(self, delivery_tag):
+                self.acks.append(delivery_tag)
+
+        class FakeManager:
+            def preload(self, _version):
+                raise AssertionError("preload must not run for invalid job_type")
+
+        runner = DeploymentConsumerRunner(FakeManager())
+        channel = FakeChannel()
+        body = json.dumps(
+            {"user_id": 1, "task_type": "deployment", "job_type": "dataset"}
+        ).encode("utf-8")
+
+        runner._callback(channel, FakeMethod(), None, body)
+
+        assert channel.acks == [15]
+        status_events = [event for event in channel.published if event.get("status") == "FAILED"]
+        assert len(status_events) == 1
+        failed = status_events[0]
+        assert failed["job_id"].startswith("deployment-1-")
+        assert failed["status"] == "FAILED"
+        assert failed["model_version"] is None
+        assert failed["stage"] == "PARSE"
+        assert failed["error_message"] == "Unsupported deployment job_type: dataset"
+        assert failed["finished_at"]
+        assert channel.published[-1]["data"] == SSE_FAILURE_MESSAGE

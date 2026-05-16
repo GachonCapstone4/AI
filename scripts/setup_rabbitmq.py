@@ -48,7 +48,10 @@ QUEUES = [
         "q.2ai.deployment",
         "x.app2ai.direct",
         "2ai.deployment",
-        {"x-dead-letter-exchange": "x.retry.direct"},
+        {
+            "x-dead-letter-exchange": "x.retry.direct",
+            "x-dead-letter-routing-key": "2ai.deployment.retry",
+        },
     ),
     ("q.2app.training", "x.ai2app.direct", "app.training", None),
 ]
