@@ -35,6 +35,7 @@ SOURCE_EXCHANGE = "x.app2ai.direct"
 SOURCE_ROUTING_KEY = "2ai.deployment"
 PUBLISH_EXCHANGE = "x.ai2app.direct"
 PUBLISH_ROUTING_KEY = "app.training"
+CONSUME_QUEUE_ARGUMENTS = {"x-dead-letter-exchange": "x.retry.direct"}
 PREFETCH_COUNT = 1
 
 log = get_logger("consumer.deployment")
@@ -90,7 +91,11 @@ def _failed_event(job_id: str, model_version: str, stage: str, error_message: st
 
 def declare_deployment_topology(channel) -> None:
     channel.exchange_declare(exchange=SOURCE_EXCHANGE, exchange_type="direct", durable=True)
-    channel.queue_declare(queue=CONSUME_QUEUE, durable=True)
+    channel.queue_declare(
+        queue=CONSUME_QUEUE,
+        durable=True,
+        arguments=CONSUME_QUEUE_ARGUMENTS,
+    )
     channel.queue_bind(
         queue=CONSUME_QUEUE,
         exchange=SOURCE_EXCHANGE,

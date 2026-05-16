@@ -31,6 +31,7 @@ from messaging.consumer_deployment import (
     PUBLISH_EXCHANGE,
     PUBLISH_QUEUE,
     PUBLISH_ROUTING_KEY,
+    CONSUME_QUEUE_ARGUMENTS,
     DeploymentConsumerRunner,
     declare_deployment_topology,
     process_deployment_message,
@@ -321,6 +322,7 @@ class TestDeploymentMessageContracts:
         assert CONSUME_QUEUE == "q.2ai.deployment"
         assert SOURCE_EXCHANGE == "x.app2ai.direct"
         assert SOURCE_ROUTING_KEY == "2ai.deployment"
+        assert CONSUME_QUEUE_ARGUMENTS == {"x-dead-letter-exchange": "x.retry.direct"}
         assert PUBLISH_EXCHANGE == "x.ai2app.direct"
         assert PUBLISH_QUEUE == "q.2app.training"
         assert PUBLISH_ROUTING_KEY == "app.training"
@@ -356,7 +358,11 @@ class TestDeploymentMessageContracts:
             "exchange_type": "direct",
             "durable": True,
         } in channel.exchanges
-        assert {"queue": "q.2ai.deployment", "durable": True} in channel.queues
+        assert {
+            "queue": "q.2ai.deployment",
+            "durable": True,
+            "arguments": {"x-dead-letter-exchange": "x.retry.direct"},
+        } in channel.queues
         assert {"queue": "q.2app.training", "durable": True} in channel.queues
         assert {
             "queue": "q.2ai.deployment",

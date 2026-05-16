@@ -39,13 +39,18 @@ EXCHANGES = [
     ("x.sse.fanout", "fanout"),      # Training/SSE logs
 ]
 
-# (queue_name, exchange, binding_key)
+# (queue_name, exchange, binding_key, arguments)
 # exchange=None means the queue is reached through the RabbitMQ default exchange.
 QUEUES = [
-    ("q.2ai.classify",  "x.app2ai.direct", "2ai.classify"),
-    ("q.2app.classify", "x.ai2app.direct", "2app.classify"),
-    ("q.2ai.deployment", "x.app2ai.direct", "2ai.deployment"),
-    ("q.2app.training", "x.ai2app.direct", "app.training"),
+    ("q.2ai.classify",  "x.app2ai.direct", "2ai.classify", None),
+    ("q.2app.classify", "x.ai2app.direct", "2app.classify", None),
+    (
+        "q.2ai.deployment",
+        "x.app2ai.direct",
+        "2ai.deployment",
+        {"x-dead-letter-exchange": "x.retry.direct"},
+    ),
+    ("q.2app.training", "x.ai2app.direct", "app.training", None),
 ]
 
 
@@ -72,8 +77,8 @@ def main():
 
     # Queue 선언 + Binding
     print("\n── Queue 선언 + Binding ────────────────────────────")
-    for queue, exchange, binding_key in QUEUES:
-        ch.queue_declare(queue=queue, durable=True)
+    for queue, exchange, binding_key, arguments in QUEUES:
+        ch.queue_declare(queue=queue, durable=True, arguments=arguments)
         print(f"  [OK] {queue}")
         if exchange is None:
             print(f"       route: exchange=<default>  routing_key={binding_key}")
@@ -82,10 +87,11 @@ def main():
             print(f"       bind: exchange={exchange}  binding_key={binding_key}")
 
     print("\n── Self-check 요약 ─────────────────────────────────")
-    for queue, exchange, binding_key in QUEUES:
+    for queue, exchange, binding_key, arguments in QUEUES:
         print(f"  queue={queue}")
         print(f"    exchange={exchange or '<default>'}")
         print(f"    binding_key={binding_key}")
+        print(f"    arguments={arguments or {}}")
 
     conn.close()
 
