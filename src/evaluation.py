@@ -59,6 +59,30 @@ def _set_korean_font() -> None:
 _set_korean_font()
 
 
+def _label_distribution(y_enc: np.ndarray, label_names: list) -> dict:
+    values, counts = np.unique(y_enc, return_counts=True)
+    return {
+        str(label_names[int(value)] if int(value) < len(label_names) else value): int(count)
+        for value, count in zip(values, counts)
+    }
+
+
+def _cv_skip_result(title: str, reason: str, label_distribution: dict, n_splits: int) -> dict:
+    print(f"\n[{title}] K-Fold 평가 스킵: {reason}", flush=True)
+    print(f"[{title}] label distribution: {label_distribution}", flush=True)
+    return {
+        "cv_skipped": True,
+        "cv_skip_reason": reason,
+        "label_distribution": label_distribution,
+        "requested_n_splits": int(n_splits),
+        "effective_n_splits": None,
+        "weighted_f1_mean": None,
+        "weighted_f1_std": None,
+        "macro_f1_mean": None,
+        "macro_f1_std": None,
+    }
+
+
 # ── 1. 임베딩 품질 검증 ─────────────────────────────────────
 def validate_embeddings(X: np.ndarray, df: pd.DataFrame) -> None:
     """SBERT 임베딩 품질 검증 — cosine similarity / mean / std"""
@@ -96,18 +120,56 @@ def evaluate_classifier(
     fig_filename: str,
     cmap        : str = "Blues",
     n_splits    : int = LR_KFOLD,
-) -> None:
+) -> dict:
     """K-Fold F1 + Confusion Matrix → outputs/figures/ 저장"""
-    cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
+    y_enc = np.asarray(y_enc)
+    label_distribution = _label_distribution(y_enc, label_names)
+    class_count = len(label_distribution)
 
-    cv_w = cross_val_score(clf, X, y_enc, cv=cv, scoring="f1_weighted")
-    cv_m = cross_val_score(clf, X, y_enc, cv=cv, scoring="f1_macro")
+    print(f"\n[{title}] label distribution: {label_distribution}", flush=True)
+    if class_count < 2:
+        return _cv_skip_result(
+            title,
+            "class_count < 2",
+            label_distribution,
+            n_splits,
+        )
+
+    min_class_count = min(label_distribution.values())
+    if min_class_count < 2:
+        return _cv_skip_result(
+            title,
+            "min_class_count < 2",
+            label_distribution,
+            n_splits,
+        )
+
+    effective_n_splits = min(int(n_splits), int(min_class_count))
+    if effective_n_splits != n_splits:
+        print(
+            f"[{title}] n_splits 조정: requested={n_splits}, effective={effective_n_splits} "
+            f"(min_class_count={min_class_count})",
+            flush=True,
+        )
+
+    cv = StratifiedKFold(n_splits=effective_n_splits, shuffle=True, random_state=42)
+
+    try:
+        cv_w = cross_val_score(clf, X, y_enc, cv=cv, scoring="f1_weighted")
+        cv_m = cross_val_score(clf, X, y_enc, cv=cv, scoring="f1_macro")
+        y_pred = cross_val_predict(clf, X, y_enc, cv=cv)
+    except Exception as exc:
+        return _cv_skip_result(
+            title,
+            f"cross_validation_failed: {exc}",
+            label_distribution,
+            n_splits,
+        )
 
     print(f"\n[{title}] K-Fold 결과")
     print(f"  Weighted F1 : {cv_w.mean():.4f} ± {cv_w.std():.4f}")
     print(f"  Macro F1    : {cv_m.mean():.4f} ± {cv_m.std():.4f}")
 
-    y_pred = cross_val_predict(clf, X, y_enc, cv=cv)
     print(f"\n[{title}] Classification Report")
     print(classification_report(y_enc, y_pred, target_names=label_names, zero_division=0))
 
@@ -130,6 +192,17 @@ def evaluate_classifier(
     plt.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.show()
     print(f"Confusion Matrix 저장 → {save_path}")
+    return {
+        "cv_skipped": False,
+        "cv_skip_reason": None,
+        "label_distribution": label_distribution,
+        "requested_n_splits": int(n_splits),
+        "effective_n_splits": int(effective_n_splits),
+        "weighted_f1_mean": round(float(cv_w.mean()), 4),
+        "weighted_f1_std": round(float(cv_w.std()), 4),
+        "macro_f1_mean": round(float(cv_m.mean()), 4),
+        "macro_f1_std": round(float(cv_m.std()), 4),
+    }
 
 
 # ── 3. ROC Curve (One-vs-Rest) ──────────────────────────────

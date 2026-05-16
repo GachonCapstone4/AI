@@ -1,13 +1,14 @@
 # 데이터 수집 배치 스크립트
 
 ## 역할
-DB에서 학습 데이터 추출 → CSV 생성 → S3 업로드 → SSE 로그 발행
+DB에서 학습 데이터 추출 → 기존 dataset_new.csv와 merge → S3 업로드 → SSE 로그 발행
 
 ## 전체 흐름
 ```
 1. DB(emails + email_analysis_results) 조인하여 데이터 추출
-2. CSV 파일 생성 (emailId, threadId, from, subject, body, email_text, domain, intent)
-3. S3 업로드 (s3://capstone-gachon/dataset/dataset_new.csv)
+2. 기존 `dataset_new.csv` 다운로드
+3. 기존 rows + 새 수집 rows merge/dedup
+4. validation 성공 시 같은 key(`dataset/dataset_new.csv`)로 업로드
 4. 진행 로그 → x.sse.fanout 발행
 5. 완료/실패 이벤트 → x.ai2app.direct / app.training 발행 (q.2app.training에서 처리, status: COMPLETED / FAILED)
 ```
@@ -25,7 +26,8 @@ DB에서 학습 데이터 추출 → CSV 생성 → S3 업로드 → SSE 로그 
 | AWS_SECRET_ACCESS_KEY | AWS Secret Key | 필수 |
 | AWS_REGION | AWS 리전 | ap-northeast-2 |
 | S3_BUCKET | S3 버킷명 | capstone-gachon |
-| S3_DATASET_KEY | S3 업로드 경로 | dataset/dataset_new.csv |
+| S3_DATASET_KEY | 누적 재학습 dataset 경로 | dataset/dataset_new.csv |
+| MIN_DATASET_SIZE | dataset 최소 행 수 | 100 |
 | RABBITMQ_HOST | RabbitMQ 호스트 | 192.168.2.20 |
 | RABBITMQ_PORT | RabbitMQ 포트 | 30672 |
 | RABBITMQ_USERNAME | RabbitMQ 사용자 | admin |
@@ -56,3 +58,12 @@ emailId,threadId,from,subject,body,email_text,domain,intent
 train_1,thread-1,sender@example.com,제목,본문내용,"제목
 본문내용",Finance,세금계산서 요청
 ```
+
+## Dataset merge 정책
+
+- `dataset_new.csv`는 항상 전체 재학습용 누적 dataset이다.
+- 배치는 기존 `dataset_new.csv`를 다운로드한 뒤 새 수집 rows를 뒤에 붙여 merge한다.
+- dedup key는 `emailId`, 없으면 `threadId`, 둘 다 없으면 sender/subject/body content key를 사용한다.
+- 같은 key가 있으면 새로 수집한 row가 기존 row를 덮어쓴다.
+- validation 성공 후에만 `dataset/dataset_new.csv`로 다시 업로드한다.
+- merge 후 총 샘플 수, domain/intent 빈 값 개수, domain distribution, intent distribution을 로그로 출력한다.

@@ -62,6 +62,21 @@ def _build_label_mapping(le_domain, intent_encoders: dict) -> dict:
     }
 
 
+def _flatten_cv_metadata(domain_metadata: dict, intent_metadata: dict) -> dict:
+    domain_cv = domain_metadata.get("domain_cv") or {}
+    return {
+        "domain_cv_skipped": bool(domain_cv.get("cv_skipped", False)),
+        "domain_cv_skip_reason": domain_cv.get("cv_skip_reason"),
+        "domain_cv_effective_n_splits": domain_cv.get("effective_n_splits"),
+        "domain_cv_weighted_f1_mean": domain_cv.get("weighted_f1_mean"),
+        "domain_cv_macro_f1_mean": domain_cv.get("macro_f1_mean"),
+        "domain_label_distribution": domain_metadata.get("domain_label_distribution", {}),
+        "intent_cv": intent_metadata.get("intent_cv", {}),
+        "intent_training_skipped": intent_metadata.get("intent_training_skipped", {}),
+        "intent_label_distribution": intent_metadata.get("intent_label_distribution", {}),
+    }
+
+
 def _compute_metrics(df, X, domain_clf, le_domain, intent_classifiers, intent_encoders) -> dict:
     domain_pred_enc = domain_clf.predict(X)
     domain_pred = le_domain.inverse_transform(domain_pred_enc)
@@ -120,18 +135,23 @@ def run_training(dataset_path: Path, output_dir: Path, model_version: str) -> di
         save_path=None,
     )
 
-    domain_clf, le_domain = train_domain_classifier(
+    domain_result = train_domain_classifier(
         X,
         df["domain"].values,
         model_path=domain_model_path,
         label_encoder_path=None,
+        return_metadata=True,
     )
-    intent_classifiers, intent_encoders = train_intent_classifiers(
+    domain_clf, le_domain, domain_training_metadata = domain_result
+
+    intent_result = train_intent_classifiers(
         X,
         df,
         model_path=intent_model_path,
         label_encoders_path=None,
+        return_metadata=True,
     )
+    intent_classifiers, intent_encoders, intent_training_metadata = intent_result
 
     joblib.dump(
         {
@@ -161,6 +181,7 @@ def run_training(dataset_path: Path, output_dir: Path, model_version: str) -> di
     metrics = {
         "model_version": model_version,
         **metric_values,
+        **_flatten_cv_metadata(domain_training_metadata, intent_training_metadata),
         "created_at": created_at,
         "metric_source": METRIC_SOURCE,
         "warning": METRIC_WARNING,

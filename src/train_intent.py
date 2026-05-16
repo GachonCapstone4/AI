@@ -23,6 +23,7 @@ def train_intent_classifiers(
     df : pd.DataFrame,
     model_path = INTENT_CLF_PATH,
     label_encoders_path = INTENT_LE_PATH,
+    return_metadata: bool = False,
 ) -> tuple:
     """
     도메인별 Intent LR 학습 + 평가 + models/ 저장
@@ -32,19 +33,40 @@ def train_intent_classifiers(
 
     intent_classifiers = {}
     intent_encoders    = {}
+    intent_metadata = {
+        "intent_label_distribution": {},
+        "intent_cv": {},
+        "intent_training_skipped": {},
+    }
 
     print("=" * 50)
     print("Intent Classifier — 도메인별 학습 및 평가")
     print("=" * 50)
+    print(f"[train_intent] 총 샘플: {len(df)}", flush=True)
+    print(
+        f"[train_intent] 전체 intent label distribution: "
+        f"{df['intent'].value_counts().sort_index().to_dict()}",
+        flush=True,
+    )
 
     for domain in df["domain"].unique():
         mask            = df["domain"] == domain
         X_domain        = X[mask]
         y_intent_domain = df.loc[mask, "intent"].values
         unique_intents  = np.unique(y_intent_domain)
+        label_distribution = {
+            str(label): int(count)
+            for label, count in zip(*np.unique(y_intent_domain, return_counts=True))
+        }
+        intent_metadata["intent_label_distribution"][str(domain)] = label_distribution
 
         if len(unique_intents) < 2:
-            print(f"[SKIP] {domain}: 인텐트 수 < 2")
+            reason = (
+                "Intent classifier training requires at least 2 intent classes "
+                f"inside domain '{domain}'; distribution={label_distribution}"
+            )
+            print(f"[SKIP] {domain}: {reason}", flush=True)
+            intent_metadata["intent_training_skipped"][str(domain)] = reason
             continue
 
         le_intent = LabelEncoder()
@@ -63,18 +85,17 @@ def train_intent_classifiers(
 
         print(f"\n[{domain}] 샘플: {len(y_enc)} | 인텐트: {len(unique_intents)} | K={n_splits}")
 
-        if n_splits >= 2:
-            # 평가 (Confusion Matrix → outputs/figures/)
-            evaluate_classifier(
-                clf         =clf,
-                X           =X_domain,
-                y_enc       =y_enc,
-                label_names =le_intent.classes_.tolist(),
-                title       =f"Intent [{domain}]",
-                fig_filename=f"intent_cm_{safe_name}.png",
-                cmap        ="Greens",
-                n_splits    =n_splits,
-            )
+        cv_evaluation = evaluate_classifier(
+            clf         =clf,
+            X           =X_domain,
+            y_enc       =y_enc,
+            label_names =le_intent.classes_.tolist(),
+            title       =f"Intent [{domain}]",
+            fig_filename=f"intent_cm_{safe_name}.png",
+            cmap        ="Greens",
+            n_splits    =n_splits,
+        )
+        intent_metadata["intent_cv"][str(domain)] = cv_evaluation
 
         # 전체 데이터 최종 학습
         clf.fit(X_domain, y_enc)
@@ -87,4 +108,6 @@ def train_intent_classifiers(
         joblib.dump(intent_encoders, label_encoders_path)
     print(f"\n[train_intent] 저장 완료 → {os.path.dirname(model_path)}")
 
+    if return_metadata:
+        return intent_classifiers, intent_encoders, intent_metadata
     return intent_classifiers, intent_encoders

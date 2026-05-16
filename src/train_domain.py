@@ -22,6 +22,7 @@ def train_domain_classifier(
     y_domain : np.ndarray,
     model_path = DOMAIN_CLF_PATH,
     label_encoder_path = DOMAIN_LE_PATH,
+    return_metadata: bool = False,
 ) -> tuple:
     """
     Domain LR 학습 + 평가 + models/ 저장
@@ -31,6 +32,18 @@ def train_domain_classifier(
 
     le_domain    = LabelEncoder()
     y_domain_enc = le_domain.fit_transform(y_domain)
+    label_distribution = {
+        str(label): int(count)
+        for label, count in zip(*np.unique(y_domain, return_counts=True))
+    }
+    print(f"[train_domain] 총 샘플: {len(y_domain)}", flush=True)
+    print(f"[train_domain] domain label distribution: {label_distribution}", flush=True)
+
+    if len(le_domain.classes_) < 2:
+        raise ValueError(
+            "Domain classifier training requires at least 2 domain classes; "
+            f"found {len(le_domain.classes_)} class with distribution={label_distribution}"
+        )
 
     clf = LogisticRegression(
         max_iter    =LR_MAX_ITER,
@@ -41,7 +54,7 @@ def train_domain_classifier(
     )
 
     # 평가 (Confusion Matrix → outputs/figures/)
-    evaluate_classifier(
+    cv_evaluation = evaluate_classifier(
         clf         =clf,
         X           =X,
         y_enc       =y_domain_enc,
@@ -61,4 +74,9 @@ def train_domain_classifier(
         joblib.dump(le_domain, label_encoder_path)
     print(f"[train_domain] 저장 완료 → {os.path.dirname(model_path)}")
 
+    if return_metadata:
+        return clf, le_domain, {
+            "domain_label_distribution": label_distribution,
+            "domain_cv": cv_evaluation,
+        }
     return clf, le_domain
