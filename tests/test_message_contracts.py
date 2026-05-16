@@ -28,6 +28,11 @@ from messaging.consumer_deployment import (
     CONSUME_QUEUE,
     SOURCE_EXCHANGE,
     SOURCE_ROUTING_KEY,
+    PUBLISH_EXCHANGE,
+    PUBLISH_QUEUE,
+    PUBLISH_ROUTING_KEY,
+    DeploymentConsumerRunner,
+    declare_deployment_topology,
     process_deployment_message,
 )
 from messaging.publisher import (
@@ -313,11 +318,56 @@ class TestBackendClassifyPublishPayload:
 
 class TestDeploymentMessageContracts:
     def test_deployment_topology_constants_match_infra_binding(self):
-        assert CONSUME_QUEUE == "q.ai.deployment"
+        assert CONSUME_QUEUE == "q.2ai.deployment"
         assert SOURCE_EXCHANGE == "x.app2ai.direct"
-        assert SOURCE_ROUTING_KEY == "deployment"
+        assert SOURCE_ROUTING_KEY == "2ai.deployment"
+        assert PUBLISH_EXCHANGE == "x.ai2app.direct"
+        assert PUBLISH_QUEUE == "q.2app.training"
+        assert PUBLISH_ROUTING_KEY == "app.training"
         assert DEPLOYMENT_STATUS_QUEUE == "q.2app.training"
         assert JOB_STATUS_ROUTING_KEY == "app.training"
+
+    def test_deployment_consumer_declares_required_topology(self):
+        class FakeChannel:
+            def __init__(self):
+                self.exchanges = []
+                self.queues = []
+                self.bindings = []
+
+            def exchange_declare(self, **kwargs):
+                self.exchanges.append(kwargs)
+
+            def queue_declare(self, **kwargs):
+                self.queues.append(kwargs)
+
+            def queue_bind(self, **kwargs):
+                self.bindings.append(kwargs)
+
+        channel = FakeChannel()
+        declare_deployment_topology(channel)
+
+        assert {
+            "exchange": "x.app2ai.direct",
+            "exchange_type": "direct",
+            "durable": True,
+        } in channel.exchanges
+        assert {
+            "exchange": "x.ai2app.direct",
+            "exchange_type": "direct",
+            "durable": True,
+        } in channel.exchanges
+        assert {"queue": "q.2ai.deployment", "durable": True} in channel.queues
+        assert {"queue": "q.2app.training", "durable": True} in channel.queues
+        assert {
+            "queue": "q.2ai.deployment",
+            "exchange": "x.app2ai.direct",
+            "routing_key": "2ai.deployment",
+        } in channel.bindings
+        assert {
+            "queue": "q.2app.training",
+            "exchange": "x.ai2app.direct",
+            "routing_key": "app.training",
+        } in channel.bindings
 
     def test_deployment_request_requires_job_id_and_model_version(self):
         payload = DeploymentRequest(
@@ -376,6 +426,8 @@ class TestDeploymentMessageContracts:
 
         assert running.stage == "PRELOAD"
         assert completed.message == "Deployment completed"
+        assert completed.stage == "COMPLETED"
+        assert completed.error_message is None
         assert failed.status == "FAILED"
 
     def test_process_deployment_publishes_running_and_completed_events(self):
@@ -428,6 +480,11 @@ class TestDeploymentMessageContracts:
             "RUNNING",
             "COMPLETED",
         ]
+        assert all("job_id" in item["body"] for item in channel.published)
+        assert all("stage" in item["body"] for item in channel.published)
+        assert all("model_version" in item["body"] for item in channel.published)
+        assert all("error_message" in item["body"] for item in channel.published)
+        assert all("finished_at" in item["body"] for item in channel.published)
         assert [item["body"].get("stage") for item in channel.published[:3]] == [
             "PRELOAD",
             "VALIDATE",
@@ -463,3 +520,60 @@ class TestDeploymentMessageContracts:
             process_deployment_message(FakeChannel(), manager, payload)
 
         assert manager.switched is False
+
+    def test_deployment_callback_accepts_model_version_camel_case_and_acks(self):
+        class FakeMethod:
+            delivery_tag = 11
+            routing_key = "2ai.deployment"
+            exchange = "x.app2ai.direct"
+            redelivered = False
+
+        class FakeChannel:
+            def __init__(self):
+                self.published = []
+                self.acks = []
+
+            def basic_publish(self, **kwargs):
+                self.published.append(json.loads(kwargs["body"].decode("utf-8")))
+
+            def basic_ack(self, delivery_tag):
+                self.acks.append(delivery_tag)
+
+        class FakeManager:
+            def __init__(self):
+                self.calls = []
+
+            def preload(self, version):
+                self.calls.append(("preload", version))
+
+            def validate(self):
+                self.calls.append(("validate", None))
+
+            def switch(self):
+                self.calls.append(("switch", None))
+                return {"status": "switched", "model_version": "training-final-004"}
+
+        manager = FakeManager()
+        runner = DeploymentConsumerRunner(manager)
+        channel = FakeChannel()
+        body = json.dumps(
+            {
+                "jobId": "deploy-1",
+                "modelVersion": "training-final-004",
+            }
+        ).encode("utf-8")
+
+        runner._callback(channel, FakeMethod(), None, body)
+
+        assert manager.calls == [
+            ("preload", "training-final-004"),
+            ("validate", None),
+            ("switch", None),
+        ]
+        assert channel.acks == [11]
+        assert [event["stage"] for event in channel.published] == [
+            "PRELOAD",
+            "VALIDATE",
+            "SWITCH",
+            "COMPLETED",
+        ]

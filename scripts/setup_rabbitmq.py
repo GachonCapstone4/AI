@@ -44,7 +44,7 @@ EXCHANGES = [
 QUEUES = [
     ("q.2ai.classify",  "x.app2ai.direct", "2ai.classify"),
     ("q.2app.classify", "x.ai2app.direct", "2app.classify"),
-    ("q.ai.deployment", "x.app2ai.direct", "deployment"),
+    ("q.2ai.deployment", "x.app2ai.direct", "2ai.deployment"),
     ("q.2app.training", "x.ai2app.direct", "app.training"),
 ]
 

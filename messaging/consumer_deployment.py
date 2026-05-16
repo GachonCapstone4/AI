@@ -1,7 +1,7 @@
 # ============================================================
 # deployment consumer
 #
-# Consume : q.ai.deployment    (x.app2ai.direct, routing key: deployment)
+# Consume : q.2ai.deployment  (x.app2ai.direct, routing key: 2ai.deployment)
 # Publish : q.2app.training    (x.ai2app.direct, routing key: app.training)
 #
 # The consumer reuses the same ModelManager instance as the HTTP
@@ -29,10 +29,12 @@ from messaging.publisher import enable_delivery_confirms, publish_deployment_sta
 from messaging.structured_log import get_logger
 from src.settings import get_settings
 
-CONSUME_QUEUE = "q.ai.deployment"
+CONSUME_QUEUE = "q.2ai.deployment"
 PUBLISH_QUEUE = "q.2app.training"
 SOURCE_EXCHANGE = "x.app2ai.direct"
-SOURCE_ROUTING_KEY = "deployment"
+SOURCE_ROUTING_KEY = "2ai.deployment"
+PUBLISH_EXCHANGE = "x.ai2app.direct"
+PUBLISH_ROUTING_KEY = "app.training"
 PREFETCH_COUNT = 1
 
 log = get_logger("consumer.deployment")
@@ -55,6 +57,8 @@ def _running_event(payload: DeploymentRequest, stage: str, message: str) -> dict
         "status": "RUNNING",
         "model_version": payload.model_version,
         "stage": stage,
+        "error_message": None,
+        "finished_at": None,
         "message": message,
         "timestamp": _utc_now(),
     }
@@ -66,6 +70,8 @@ def _completed_event(payload: DeploymentRequest, active_model_version: str) -> d
         "status": "COMPLETED",
         "model_version": payload.model_version,
         "active_model_version": active_model_version,
+        "stage": "COMPLETED",
+        "error_message": None,
         "finished_at": _utc_now(),
         "message": "Deployment completed",
     }
@@ -80,6 +86,23 @@ def _failed_event(job_id: str, model_version: str, stage: str, error_message: st
         "error_message": error_message,
         "finished_at": _utc_now(),
     }
+
+
+def declare_deployment_topology(channel) -> None:
+    channel.exchange_declare(exchange=SOURCE_EXCHANGE, exchange_type="direct", durable=True)
+    channel.queue_declare(queue=CONSUME_QUEUE, durable=True)
+    channel.queue_bind(
+        queue=CONSUME_QUEUE,
+        exchange=SOURCE_EXCHANGE,
+        routing_key=SOURCE_ROUTING_KEY,
+    )
+    channel.exchange_declare(exchange=PUBLISH_EXCHANGE, exchange_type="direct", durable=True)
+    channel.queue_declare(queue=PUBLISH_QUEUE, durable=True)
+    channel.queue_bind(
+        queue=PUBLISH_QUEUE,
+        exchange=PUBLISH_EXCHANGE,
+        routing_key=PUBLISH_ROUTING_KEY,
+    )
 
 
 def process_deployment_message(channel, manager, payload: DeploymentRequest) -> dict:
@@ -166,6 +189,7 @@ class DeploymentConsumerRunner:
                 self._connection = conn
                 self._channel = ch
 
+                declare_deployment_topology(ch)
                 enable_delivery_confirms(ch)
                 ch.basic_qos(prefetch_count=PREFETCH_COUNT)
                 ch.basic_consume(queue=CONSUME_QUEUE, on_message_callback=self._callback)

@@ -29,6 +29,8 @@ class DeploymentRunningEvent(BaseModel):
     status: Literal["RUNNING"]
     model_version: str
     stage: Literal["PRELOAD", "VALIDATE", "SWITCH"]
+    error_message: str | None = None
+    finished_at: str | None = None
     message: str
     timestamp: str
 
@@ -38,6 +40,8 @@ class DeploymentCompletedEvent(BaseModel):
     status: Literal["COMPLETED"]
     model_version: str
     active_model_version: str
+    stage: Literal["COMPLETED"] = "COMPLETED"
+    error_message: str | None = None
     finished_at: str
     message: str = "Deployment completed"
 
