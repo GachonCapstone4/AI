@@ -435,9 +435,17 @@ class TestDeploymentMessageContracts:
         assert normalized.job_id.startswith("deployment-1-")
         assert normalized.model_version is None
 
+    def test_deployment_request_defaults_missing_job_type_to_model_for_events(self):
+        payload = DeploymentRequest(user_id=1, task_type="deployment")
+
+        normalized = normalize_deployment_payload(payload)
+
+        assert normalized.job_type == "model"
+
     def test_deployment_events_parse(self):
         running = DeploymentRunningEvent(
             job_id="deploy-1",
+            job_type="model",
             status="RUNNING",
             model_version="training-final-004",
             stage="PRELOAD",
@@ -446,6 +454,7 @@ class TestDeploymentMessageContracts:
         )
         completed = DeploymentCompletedEvent(
             job_id="deploy-1",
+            job_type="model",
             status="COMPLETED",
             model_version="training-final-004",
             active_model_version="training-final-004",
@@ -453,6 +462,7 @@ class TestDeploymentMessageContracts:
         )
         failed = DeploymentFailedEvent(
             job_id="deploy-1",
+            job_type="model",
             status="FAILED",
             model_version="training-final-004",
             stage="VALIDATE",
@@ -461,10 +471,13 @@ class TestDeploymentMessageContracts:
         )
 
         assert running.stage == "PRELOAD"
+        assert running.job_type == "model"
         assert completed.message == "Deployment completed"
         assert completed.stage == "COMPLETED"
         assert completed.error_message is None
+        assert completed.job_type == "model"
         assert failed.status == "FAILED"
+        assert failed.job_type == "model"
 
     def test_process_deployment_publishes_running_and_completed_events(self):
         class FakeChannel:
@@ -525,6 +538,7 @@ class TestDeploymentMessageContracts:
             "COMPLETED",
         ]
         assert all("job_id" in item["body"] for item in status_events)
+        assert all(item["body"]["job_type"] == "model" for item in status_events)
         assert all("stage" in item["body"] for item in status_events)
         assert all("model_version" in item["body"] for item in status_events)
         assert all("error_message" in item["body"] for item in status_events)
@@ -540,6 +554,7 @@ class TestDeploymentMessageContracts:
         assert sse_events[0]["routing_key"] == ""
         assert sse_events[0]["body"]["data"] == SSE_SUCCESS_MESSAGE
         assert event["active_model_version"] == "training-final-004"
+        assert event["job_type"] == "model"
 
     def test_sse_publish_failure_does_not_fail_completed_deployment(self):
         class FakeChannel:
@@ -611,8 +626,10 @@ class TestDeploymentMessageContracts:
 
         assert manager.calls[0] == ("preload", None)
         assert event["model_version"] is None
+        assert event["job_type"] == "model"
         assert event["active_model_version"] == "latest-from-json"
         assert channel.published[0]["job_id"].startswith("deployment-1-")
+        assert all(item["job_type"] == "model" for item in channel.published if "status" in item)
 
     def test_validate_failure_does_not_switch(self):
         class FakeChannel:
@@ -743,6 +760,7 @@ class TestDeploymentMessageContracts:
         assert channel.published[0]["job_id"].startswith("deployment-1-")
         completed = [event for event in channel.published if event.get("status") == "COMPLETED"][0]
         assert completed["active_model_version"] == "latest-from-json"
+        assert completed["job_type"] == "model"
         assert channel.published[-1]["data"] == SSE_SUCCESS_MESSAGE
 
     def test_deployment_callback_accepts_admin_model_job_payload(self):
@@ -792,9 +810,59 @@ class TestDeploymentMessageContracts:
             ("switch", None),
         ]
         assert channel.acks == [14]
+        status_events = [event for event in channel.published if "status" in event]
+        assert all(event["job_type"] == "model" for event in status_events)
         completed = [event for event in channel.published if event.get("status") == "COMPLETED"][0]
         assert completed["status"] == "COMPLETED"
+        assert completed["job_type"] == "model"
         assert channel.published[-1]["data"] == SSE_SUCCESS_MESSAGE
+
+    def test_deployment_callback_stage_failure_publishes_failed_with_job_type(self):
+        class FakeMethod:
+            delivery_tag = 16
+            routing_key = "2ai.deployment"
+            exchange = "x.app2ai.direct"
+            redelivered = False
+
+        class FakeChannel:
+            def __init__(self):
+                self.published = []
+                self.acks = []
+
+            def basic_publish(self, **kwargs):
+                self.published.append(json.loads(kwargs["body"].decode("utf-8")))
+
+            def basic_ack(self, delivery_tag):
+                self.acks.append(delivery_tag)
+
+        class FakeManager:
+            def preload(self, _version):
+                pass
+
+            def validate(self):
+                raise RuntimeError("validation failed")
+
+            def switch(self):
+                raise AssertionError("switch must not run after validation failure")
+
+        runner = DeploymentConsumerRunner(FakeManager())
+        channel = FakeChannel()
+        body = json.dumps(
+            {
+                "job_id": "deploy-1",
+                "model_version": "training-final-004",
+                "job_type": "model",
+            }
+        ).encode("utf-8")
+
+        runner._callback(channel, FakeMethod(), None, body)
+
+        assert channel.acks == [16]
+        failed = [event for event in channel.published if event.get("status") == "FAILED"][0]
+        assert failed["job_type"] == "model"
+        assert failed["stage"] == "VALIDATE"
+        assert failed["error_message"] == "validation failed"
+        assert channel.published[-1]["data"] == SSE_FAILURE_MESSAGE
 
     def test_deployment_callback_invalid_task_type_publishes_failed_and_acks(self):
         class FakeMethod:
@@ -829,6 +897,7 @@ class TestDeploymentMessageContracts:
         assert len(status_events) == 1
         failed = status_events[0]
         assert failed["job_id"].startswith("deployment-1-")
+        assert failed["job_type"] == "model"
         assert failed["status"] == "FAILED"
         assert failed["model_version"] is None
         assert failed["stage"] == "PARSE"
@@ -871,6 +940,7 @@ class TestDeploymentMessageContracts:
         assert len(status_events) == 1
         failed = status_events[0]
         assert failed["job_id"].startswith("deployment-1-")
+        assert failed["job_type"] == "dataset"
         assert failed["status"] == "FAILED"
         assert failed["model_version"] is None
         assert failed["stage"] == "PARSE"

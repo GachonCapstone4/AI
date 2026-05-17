@@ -72,15 +72,20 @@ def normalize_deployment_payload(payload: DeploymentRequest) -> DeploymentReques
     if payload.job_type is not None and payload.job_type != "model":
         raise ValueError(f"Unsupported deployment job_type: {payload.job_type}")
 
+    updates = {}
+    if payload.job_type is None:
+        updates["job_type"] = "model"
     if payload.job_id:
-        return payload
+        return payload.model_copy(update=updates) if updates else payload
 
-    return payload.model_copy(update={"job_id": _fallback_job_id(payload.user_id)})
+    updates["job_id"] = _fallback_job_id(payload.user_id)
+    return payload.model_copy(update=updates)
 
 
 def _running_event(payload: DeploymentRequest, stage: str, message: str) -> dict:
     return {
         "job_id": payload.job_id,
+        "job_type": payload.job_type or "model",
         "status": "RUNNING",
         "model_version": payload.model_version,
         "stage": stage,
@@ -94,6 +99,7 @@ def _running_event(payload: DeploymentRequest, stage: str, message: str) -> dict
 def _completed_event(payload: DeploymentRequest, active_model_version: str) -> dict:
     return {
         "job_id": payload.job_id,
+        "job_type": payload.job_type or "model",
         "status": "COMPLETED",
         "model_version": payload.model_version,
         "active_model_version": active_model_version,
@@ -104,9 +110,16 @@ def _completed_event(payload: DeploymentRequest, active_model_version: str) -> d
     }
 
 
-def _failed_event(job_id: str, model_version: str, stage: str, error_message: str) -> dict:
+def _failed_event(
+    job_id: str,
+    model_version: str | None,
+    job_type: str | None,
+    stage: str,
+    error_message: str,
+) -> dict:
     return {
         "job_id": job_id,
+        "job_type": job_type or "model",
         "status": "FAILED",
         "model_version": model_version,
         "stage": stage,
@@ -299,6 +312,7 @@ class DeploymentConsumerRunner:
         job_id = "(unknown)"
         model_version = None
         user_id = None
+        job_type = "model"
         stage = "PARSE"
         t0 = time.perf_counter()
 
@@ -314,11 +328,13 @@ class DeploymentConsumerRunner:
                     "model_version",
                     data.get("modelVersion"),
                 )
+                job_type = data.get("job_type", data.get("jobType", job_type))
 
             payload = DeploymentRequest(**data)
             payload = normalize_deployment_payload(payload)
             job_id = payload.job_id
             model_version = payload.model_version
+            job_type = payload.job_type
 
             log.info(
                 "processing_started",
@@ -336,21 +352,22 @@ class DeploymentConsumerRunner:
                 elapsed_ms=round((time.perf_counter() - t0) * 1000, 2),
             )
         except json.JSONDecodeError as exc:
-            self._publish_failed_and_ack(ch, method.delivery_tag, job_id, model_version, user_id, stage, exc)
+            self._publish_failed_and_ack(ch, method.delivery_tag, job_id, model_version, job_type, user_id, stage, exc)
         except ValidationError as exc:
-            self._publish_failed_and_ack(ch, method.delivery_tag, job_id, model_version, user_id, stage, exc)
+            self._publish_failed_and_ack(ch, method.delivery_tag, job_id, model_version, job_type, user_id, stage, exc)
         except DeploymentStageError as exc:
             self._publish_failed_and_ack(
                 ch,
                 method.delivery_tag,
                 job_id,
                 model_version,
+                job_type,
                 user_id,
                 exc.stage,
                 exc.original,
             )
         except Exception as exc:
-            self._publish_failed_and_ack(ch, method.delivery_tag, job_id, model_version, user_id, stage, exc)
+            self._publish_failed_and_ack(ch, method.delivery_tag, job_id, model_version, job_type, user_id, stage, exc)
 
     def _publish_failed_and_ack(
         self,
@@ -358,11 +375,12 @@ class DeploymentConsumerRunner:
         delivery_tag,
         job_id: str,
         model_version: str | None,
+        job_type: str | None,
         user_id: int | str | None,
         stage: str,
         exc: Exception,
     ) -> None:
-        event = _failed_event(job_id, model_version, stage, str(exc))
+        event = _failed_event(job_id, model_version, job_type, stage, str(exc))
         publish_deployment_status(ch, event)
         failure_payload = DeploymentRequest(
             job_id=job_id,

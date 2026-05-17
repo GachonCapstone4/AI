@@ -29,6 +29,7 @@ class DeploymentRequest(BaseModel):
 
 class DeploymentRunningEvent(BaseModel):
     job_id: str
+    job_type: str = "model"
     status: Literal["RUNNING"]
     model_version: str | None = None
     stage: Literal["PRELOAD", "VALIDATE", "SWITCH"]
@@ -40,6 +41,7 @@ class DeploymentRunningEvent(BaseModel):
 
 class DeploymentCompletedEvent(BaseModel):
     job_id: str
+    job_type: str = "model"
     status: Literal["COMPLETED"]
     model_version: str | None = None
     active_model_version: str
@@ -51,6 +53,7 @@ class DeploymentCompletedEvent(BaseModel):
 
 class DeploymentFailedEvent(BaseModel):
     job_id: str
+    job_type: str = "model"
     status: Literal["FAILED"]
     model_version: str | None = None
     stage: str

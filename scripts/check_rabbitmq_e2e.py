@@ -286,6 +286,7 @@ def _deployment_request_payload(test_id: str) -> dict:
 def _deployment_status_payload(test_id: str) -> dict:
     return {
         "job_id": f"deploy-e2e-{test_id}",
+        "job_type": "model",
         "status": "COMPLETED",
         "model_version": "training-final-004",
         "active_model_version": "training-final-004",
