@@ -93,16 +93,16 @@ sequenceDiagram
     participant Current as Current Model
     participant Staging as Staging Model
 
-    Admin→>AI: POST /deployment/preload
-    AI→>S3: models/{version}/ 다운로드
-    AI→>Staging: staging_bundle 로드
+    Admin->>AI: POST /deployment/preload
+    AI->>S3: models/{version}/ 다운로드
+    AI->>Staging: staging_bundle 로드
 
-    Admin→>AI: POST /deployment/validate
-    AI→>Staging: 샘플 추론
-    AI→>Staging: label_mapping 검증
+    Admin->>AI: POST /deployment/validate
+    AI->>Staging: 샘플 추론
+    AI->>Staging: label_mapping 검증
 
-    Admin→>AI: POST /deployment/switch
-    AI→>Current: 검증된 staging 모델을 current로 전환
+    Admin->>AI: POST /deployment/switch
+    AI->>Current: 검증된 staging 모델을 current로 전환
 ```
 
 </details>
@@ -122,15 +122,15 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    A["dataset_new.csv<br/>email_text, domain, intent"] -→ B["Contrastive pair 생성"]
-    B -→ C["SBERT fine-tuning"]
-    C -→ D["email_text embedding 생성"]
-    D -→ E["Domain Logistic Regression 학습"]
-    D -→ F["Domain별 Intent Logistic Regression 학습"]
-    E -→ G["domain_model.pkl"]
-    F -→ H["intent_model.pkl"]
-    G -→ I["metrics.json / config.json / label_mapping.json"]
-    H -→ I
+    A["dataset_new.csv<br/>email_text, domain, intent"] --> B["Contrastive pair 생성"]
+    B --> C["SBERT fine-tuning"]
+    C --> D["email_text embedding 생성"]
+    D --> E["Domain Logistic Regression 학습"]
+    D --> F["Domain별 Intent Logistic Regression 학습"]
+    E --> G["domain_model.pkl"]
+    F --> H["intent_model.pkl"]
+    G --> I["metrics.json / config.json / label_mapping.json"]
+    H --> I
 ```
 
 </details>
@@ -227,7 +227,6 @@ flowchart TD
 - Domain / Intent 예측 결과
 - 이메일 요약
 - 일정 추출 결과
-- 분류 confidence score
 
 ## 모니터링
 
