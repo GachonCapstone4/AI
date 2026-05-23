@@ -2,7 +2,8 @@
 
 업무 이메일의 분류, 사용자 맞춤형 답장 초안 생성 및 자동 발송, Google Calendar 연동 기반 일정 등록까지 지원하여 반복적인 업무 처리를 줄이는 **업무용 이메일 자동화 AI Agent 서비스**입니다.
 
-업무 이메일의 의도를 안정적으로 분류하기 위해 `SBERT + Logistic Regression` 기반 계층형 분류 구조를 사용했습니다. LLM은 전체 판단을 대체하지 않고 이메일 요약과 일정 추출 같은 후처리에 집중하도록 구성해, 서비스 목적에 맞는 일관성과 운영 안정성을 고려했습니다.
+> 업무 이메일의 의도를 안정적으로 분류하기 위해 `SBERT + Logistic Regression` 기반 계층형 분류 구조를 사용했습니다.
+> LLM은 전체 판단을 대체하지 않고 이메일 요약과 일정 추출 같은 후처리에 집중하도록 구성해, 서비스 목적에 맞는 일관성과 운영 안정성을 고려했습니다.
 
 ![README Hero Diagram](docs/README%20Hero%20Diagram.png)
 
@@ -15,11 +16,11 @@
 ## AI 서버 핵심 기능
 
 - 이메일 제목/본문 기반 `Domain / Intent` 자동 분류
-- `SBERT -> Domain Logistic Regression -> Domain별 Intent Logistic Regression` 계층형 분류
+- `SBERT → Domain Logistic Regression → Domain별 Intent Logistic Regression` 계층형 분류
 - LLM 기반 이메일 요약 및 일정 정보 추출
 - FastAPI 동기 inference API와 RabbitMQ 비동기 consumer 제공
 - S3 model artifact와 `latest.json` 기반 모델 버전 관리
-- `preload -> validate -> switch` 기반 모델 교체
+- `preload → validate → switch` 기반 모델 교체
 - SageMaker training container, Kubernetes dataset batch, Prometheus metrics 구성
 
 ## 기술 스택
@@ -45,13 +46,13 @@
 
 ![AI 추론 파이프라인](docs/AI%20추론%20파이프라인.png)
 
-LLM은 분류기를 대체하지 않습니다. 분류는 `SBERT -> Domain Logistic Regression -> Domain별 Intent Logistic Regression` 순서로 수행하고, LLM은 요약과 일정 표현 추출에 사용합니다.
+LLM은 분류기를 대체하지 않습니다. 분류는 `SBERT → Domain Logistic Regression → Domain별 Intent Logistic Regression` 순서로 수행하고, LLM은 요약과 일정 표현 추출에 사용합니다.
 
 ## 모델 구조
 
 ![계층형 모델 구조](docs/계층형%20모델%20구조.png)
 
-핵심은 `Domain -> Intent` hierarchical classification 구조입니다. 먼저 상위 업무 영역을 좁힌 뒤, 해당 Domain의 Intent classifier로 세부 의도를 예측합니다.
+핵심은 `Domain → Intent` hierarchical classification 구조입니다. 먼저 상위 업무 영역을 좁힌 뒤, 해당 Domain의 Intent classifier로 세부 의도를 예측합니다.
 
 | 구성 요소 | 사용 기술 | 역할 |
 |---|---|---|
@@ -82,7 +83,7 @@ LLM은 분류기를 대체하지 않습니다. 분류는 `SBERT -> Domain Logist
 | switch | `POST /deployment/switch` | 검증된 staging 모델을 active model로 전환 |
 
 <details>
-<summary>preload -> validate -> switch sequence 보기</summary>
+<summary>preload → validate → switch sequence 보기</summary>
 
 ```mermaid
 sequenceDiagram
@@ -92,16 +93,16 @@ sequenceDiagram
     participant Current as Current Model
     participant Staging as Staging Model
 
-    Admin->>AI: POST /deployment/preload
-    AI->>S3: models/{version}/ 다운로드
-    AI->>Staging: staging_bundle 로드
+    Admin→>AI: POST /deployment/preload
+    AI→>S3: models/{version}/ 다운로드
+    AI→>Staging: staging_bundle 로드
 
-    Admin->>AI: POST /deployment/validate
-    AI->>Staging: 샘플 추론
-    AI->>Staging: label_mapping 검증
+    Admin→>AI: POST /deployment/validate
+    AI→>Staging: 샘플 추론
+    AI→>Staging: label_mapping 검증
 
-    Admin->>AI: POST /deployment/switch
-    AI->>Current: 검증된 staging 모델을 current로 전환
+    Admin→>AI: POST /deployment/switch
+    AI→>Current: 검증된 staging 모델을 current로 전환
 ```
 
 </details>
@@ -121,15 +122,15 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    A["dataset_new.csv<br/>email_text, domain, intent"] --> B["Contrastive pair 생성"]
-    B --> C["SBERT fine-tuning"]
-    C --> D["email_text embedding 생성"]
-    D --> E["Domain Logistic Regression 학습"]
-    D --> F["Domain별 Intent Logistic Regression 학습"]
-    E --> G["domain_model.pkl"]
-    F --> H["intent_model.pkl"]
-    G --> I["metrics.json / config.json / label_mapping.json"]
-    H --> I
+    A["dataset_new.csv<br/>email_text, domain, intent"] -→ B["Contrastive pair 생성"]
+    B -→ C["SBERT fine-tuning"]
+    C -→ D["email_text embedding 생성"]
+    D -→ E["Domain Logistic Regression 학습"]
+    D -→ F["Domain별 Intent Logistic Regression 학습"]
+    E -→ G["domain_model.pkl"]
+    F -→ H["intent_model.pkl"]
+    G -→ I["metrics.json / config.json / label_mapping.json"]
+    H -→ I
 ```
 
 </details>
@@ -189,7 +190,7 @@ flowchart TD
 |---|---|
 | 분류와 LLM 역할 분리 | 분류는 SBERT + Logistic Regression이 담당하고, LLM은 요약/일정 추출에 사용합니다. |
 | 계층형 분류 구조 | Domain을 먼저 예측한 뒤 해당 Domain의 Intent classifier로 세부 의도를 분류합니다. |
-| 모델 교체 안정성 | 새 모델을 바로 덮어쓰지 않고 `preload -> validate -> switch` 단계를 둡니다. |
+| 모델 교체 안정성 | 새 모델을 바로 덮어쓰지 않고 `preload → validate → switch` 단계를 둡니다. |
 | 비동기 메시지 처리 | classify/deployment consumer로 API 요청 흐름과 긴 작업을 분리합니다. |
 | 학습 산출물 표준화 | SageMaker 학습 결과를 `sbert`, `domain_model.pkl`, `intent_model.pkl`, `label_mapping.json`, `metrics.json`, `config.json` 단위로 관리합니다. |
 | 운영 지표 노출 | `/metrics`에서 request count, latency, confidence, error, active model 정보를 Prometheus 형식으로 제공합니다. |
@@ -200,9 +201,9 @@ flowchart TD
 |---|---|---|
 | 텍스트 표현 방식 | SBERT 기반 이메일 텍스트 임베딩 | 제목/본문의 의미적 유사성을 반영하기 위해 |
 | 분류 모델 | SBERT embedding + Logistic Regression | 데이터셋 규모가 크지 않은 상황에서 학습/추론이 빠르고 baseline으로 안정적이기 때문 |
-| 세부 의도 분류 | Domain -> Intent 계층형 구조 | 업무 영역을 먼저 좁혀 세부 의도 오분류를 줄이기 위해 |
+| 세부 의도 분류 | Domain → Intent 계층형 구조 | 업무 영역을 먼저 좁혀 세부 의도 오분류를 줄이기 위해 |
 | LLM 사용 범위 | 분류는 ML 모델, LLM은 요약/일정 추출 | 비용, 일관성, latency를 관리하기 위해 |
-| 모델 교체 | `preload -> validate -> switch` | 검증 실패 시 기존 모델을 유지하기 위해 |
+| 모델 교체 | `preload → validate → switch` | 검증 실패 시 기존 모델을 유지하기 위해 |
 | 긴 작업 처리 | RabbitMQ 메시지 기반 처리 | 학습/배포 작업을 API 요청 흐름과 분리하기 위해 |
 | artifact 관리 | S3에 version 단위 저장 | 모델 파일, label mapping, metrics, config를 배포 단위로 관리하기 위해 |
 
@@ -261,7 +262,7 @@ flowchart TD
 - SBERT 기반 계층형 이메일 분류 구조 설계 및 inference pipeline 구현
 - FastAPI + RabbitMQ 기반 AI inference / deployment consumer 구현
 - SageMaker training container 및 S3 model artifact 관리 구조 구현
-- `preload -> validate -> switch` 기반 모델 교체 흐름 구현
+- `preload → validate → switch` 기반 모델 교체 흐름 구현
 - Prometheus metrics 및 운영 모니터링 구성
 - dataset batch, message contract, deployment 관련 테스트 작성
 
