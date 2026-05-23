@@ -7,6 +7,15 @@
 
 ![README Hero Diagram](docs/README%20Hero%20Diagram.png)
 
+## AI 서버 담당 (전민지)
+
+- SBERT 기반 계층형 이메일 분류 구조 설계 및 inference pipeline 구현
+- FastAPI + RabbitMQ 기반 AI inference / deployment consumer 구현
+- SageMaker training container 및 S3 model artifact 관리 구조 구현
+- `preload → validate → switch` 기반 모델 교체 흐름 구현
+- Prometheus metrics 및 운영 모니터링 구성
+- dataset batch, message contract, deployment 관련 테스트 작성
+
 ## 서비스 링크
 
 - Production URL: https://capstone.studylink.click/
@@ -255,15 +264,6 @@ flowchart TD
 | MLOps | `tests/test_training_container_entrypoint.py`, `tests/test_training_events.py`, `tests/test_dataset_batch.py` |
 | 모델 학습 보조 | `tests/test_train_sbert_artifact.py`, `tests/test_training_cv_guards.py` |
 | 운영 지표/일정 파싱 | `tests/test_metrics_endpoint.py`, `tests/test_schedule_parser.py` |
-
-## AI 서버 담당 (전민지)
-
-- SBERT 기반 계층형 이메일 분류 구조 설계 및 inference pipeline 구현
-- FastAPI + RabbitMQ 기반 AI inference / deployment consumer 구현
-- SageMaker training container 및 S3 model artifact 관리 구조 구현
-- `preload → validate → switch` 기반 모델 교체 흐름 구현
-- Prometheus metrics 및 운영 모니터링 구성
-- dataset batch, message contract, deployment 관련 테스트 작성
 
 ## 디렉터리 구조
 
