@@ -2,17 +2,17 @@
 
 업무 이메일을 자동 분류하고, 요약과 일정 후보 추출을 지원하는 **AI 기반 이메일 자동화 서버**입니다.
 
-단순 GPT API 연결이 아니라, `SBERT + Logistic Regression` 분류기로 이메일의 `Domain / Intent`를 예측하고 LLM은 요약과 일정 추출에만 사용합니다. FastAPI inference API, RabbitMQ consumer, SageMaker training container, Kubernetes dataset batch, S3 model artifact, Prometheus metrics까지 포함해 운영 흐름을 고려했습니다.
+단순 GPT API 연결이 아니라, 업무 이메일의 의도를 안정적으로 분류하기 위해 `SBERT + Logistic Regression` 기반 계층형 분류 구조를 사용했습니다. LLM은 전체 판단을 대체하지 않고 이메일 요약과 일정 추출 같은 후처리에 집중하도록 구성해, 서비스 목적에 맞는 일관성과 운영 안정성을 고려했습니다.
 
 ![README Hero Diagram](docs/README%20Hero%20Diagram.png)
 
-## Live Service
+## 서비스 링크
 
 - Production URL: https://capstone.studylink.click/
 
 실제 운영 중인 업무 이메일 AI 자동화 서비스입니다.
 
-## 핵심 기능
+## AI 서버 핵심 기능
 
 - 이메일 제목/본문 기반 `Domain / Intent` 자동 분류
 - `SBERT -> Domain Logistic Regression -> Domain별 Intent Logistic Regression` 계층형 분류
@@ -28,8 +28,8 @@
 |---|---|
 | API 서버 | FastAPI, Uvicorn, Pydantic |
 | 모델 | SentenceTransformers, SBERT, Scikit-learn LogisticRegression |
-| LLM 연동 | OpenAI-compatible chat client |
-| 비동기 처리 | RabbitMQ, pika |
+| LLM 연동 | 학교 GPU 서버 기반 LLM API (Qwen3.5-35B-A3B) |
+| 비동기 처리 | RabbitMQ |
 | MLOps | SageMaker Training Job, S3, Kubernetes Job |
 | 모니터링 | Prometheus metrics |
 | 테스트 | pytest, FastAPI TestClient |
@@ -59,7 +59,15 @@ LLM은 분류기를 대체하지 않습니다. 분류는 `SBERT -> Domain Logist
 | SBERT Fine-tuning | `ContrastiveLoss` | 같은 intent는 positive, 같은 domain의 다른 intent는 hard negative로 학습 |
 | Domain Classifier | `LogisticRegression` | 상위 업무 영역 분류 |
 | Intent Classifier | `dict[str, LogisticRegression]` | Domain별 세부 intent 분류 |
-| LLM Processor | OpenAI-compatible chat client | 요약 및 일정 표현 추출 |
+| LLM Processor | 학교 GPU 서버 기반 LLM API | 요약 및 일정 표현 추출 |
+
+## 데이터셋 및 분류 범위
+
+| 항목 | 값 |
+|---|---:|
+| 학습 데이터 샘플 수 | 1,510 |
+| Domain 수 | 7 |
+| Intent 수 | 30 |
 
 ## 운영 배포 구조
 
@@ -126,55 +134,18 @@ flowchart TD
 
 </details>
 
-## 시스템 설계 포인트
-
-| 구현한 내용 | 설명 |
-|---|---|
-| 분류와 LLM 역할 분리 | 분류는 SBERT + Logistic Regression이 담당하고, LLM은 요약/일정 추출에 사용합니다. |
-| 계층형 분류 구조 | Domain을 먼저 예측한 뒤 해당 Domain의 Intent classifier로 세부 의도를 분류합니다. |
-| 모델 교체 안정성 | 새 모델을 바로 덮어쓰지 않고 `preload -> validate -> switch` 단계를 둡니다. |
-| 비동기 메시지 처리 | classify/deployment consumer로 API 요청 흐름과 긴 작업을 분리합니다. |
-| 학습 산출물 표준화 | SageMaker 학습 결과를 `sbert`, `domain_model.pkl`, `intent_model.pkl`, `label_mapping.json`, `metrics.json`, `config.json` 단위로 관리합니다. |
-| 운영 지표 노출 | `/metrics`에서 request count, latency, confidence, error, active model 정보를 Prometheus 형식으로 제공합니다. |
-
-## 성능 및 규모
-
-| 항목 | 값 | 기준 |
-|---|---:|---|
-| 학습 데이터 샘플 수 | 1,510 | `data/dataset_new.csv` |
-| Domain 수 | 7 | `data/dataset_new.csv` |
-| Intent 수 | 30 | `data/dataset_new.csv` |
-| SBERT embedding dimension | 384 | `paraphrase-multilingual-MiniLM-L12-v2`, `src/train_sbert.py` 주석 |
-| confidence threshold | 0.4 | `src/config.py` |
-
-## 담당 역할
-
-- FastAPI 기반 AI inference server 구현
-- SBERT 기반 이메일 분류 pipeline 구성
-- Domain / Intent 2단계 Logistic Regression 학습 및 추론 구조 구현
-- LLM 기반 요약 및 일정 추출 흐름 연동
-- RabbitMQ classify/deployment consumer와 publish payload 계약 구현
-- SageMaker training container entrypoint 구성
-- S3 model artifact 업로드, `latest.json` 갱신, model cache 로딩 구조 구현
-- `preload -> validate -> switch` 기반 모델 교체 구조 구현
-- Prometheus inference metric 및 `/metrics` endpoint 구현
-- dataset batch의 DB 추출, CSV 병합/dedup, S3 업로드, 상태 이벤트 발행 흐름 구현
-- API, 메시지 계약, 모델 로더, 배포, 학습 컨테이너, dataset batch 테스트 작성
-
 <details>
-<summary>주요 API 보기</summary>
+<summary>운영 endpoint 및 메시지 Payload 보기</summary>
 
 | Method | Endpoint | 역할 |
 |---|---|---|
 | `GET` | `/health` | 서버 상태 확인 |
-| `POST` | `/classify` | 이메일 분류, 요약, 일정 추출, embedding 반환 |
-| `POST` | `/summarize` | 요약 및 일정 추출 보조 API |
 | `POST` | `/deployment/preload` | 새 모델 staging 로드 |
 | `POST` | `/deployment/validate` | staging 모델 검증 |
 | `POST` | `/deployment/switch` | active model 전환 |
 | `GET` | `/metrics` | Prometheus metric 노출 |
 
-### `/classify` 요청
+### RabbitMQ 메시지 Payload 예시
 
 ```json
 {
@@ -188,31 +159,63 @@ flowchart TD
 }
 ```
 
-### `/classify` 응답 예시
+### AI 처리 결과 Payload 예시
 
 ```json
 {
   "outbox_id": 1,
   "email_id": 1,
-  "classification": {
-    "domain": "Finance",
-    "intent": "Invoice Request"
-  },
+  "domain": "Finance",
+  "intent": "Invoice Request",
   "confidence_score": 0.91,
-  "summary": "세금계산서 발행 요청 건입니다.",
-  "schedule_info": {
+  "summary_text": "세금계산서 발행 요청 건입니다.",
+  "schedule_detected": true,
+  "entities_json": {
     "date": "2026-04-14",
     "time": "14:00",
     "location": "회의실 A"
   },
-  "email_embedding": [0.0123, -0.0456],
-  "meta": null
+  "model_version": "2026-04-14-001"
 }
 ```
 
-`email_embedding`은 실제 응답에서 SBERT embedding 전체 길이의 float list로 반환됩니다. HTTP `/classify` 응답의 `meta`는 기본적으로 `null`입니다.
+운영 서비스에서는 backend와 AI server가 RabbitMQ 메시지를 통해 분류 요청과 결과를 주고받습니다. REST endpoint는 모델 배포, health check, monitoring 같은 운영/관리 용도로 사용합니다.
 
 </details>
+
+## 시스템 설계 포인트
+
+| 구현한 내용 | 설명 |
+|---|---|
+| 분류와 LLM 역할 분리 | 분류는 SBERT + Logistic Regression이 담당하고, LLM은 요약/일정 추출에 사용합니다. |
+| 계층형 분류 구조 | Domain을 먼저 예측한 뒤 해당 Domain의 Intent classifier로 세부 의도를 분류합니다. |
+| 모델 교체 안정성 | 새 모델을 바로 덮어쓰지 않고 `preload -> validate -> switch` 단계를 둡니다. |
+| 비동기 메시지 처리 | classify/deployment consumer로 API 요청 흐름과 긴 작업을 분리합니다. |
+| 학습 산출물 표준화 | SageMaker 학습 결과를 `sbert`, `domain_model.pkl`, `intent_model.pkl`, `label_mapping.json`, `metrics.json`, `config.json` 단위로 관리합니다. |
+| 운영 지표 노출 | `/metrics`에서 request count, latency, confidence, error, active model 정보를 Prometheus 형식으로 제공합니다. |
+
+## 주요 설계 결정
+
+| 고민한 지점 | 선택한 방식 | 이유 |
+|---|---|---|
+| 텍스트 표현 방식 | SBERT 기반 이메일 텍스트 임베딩 | 제목/본문의 의미적 유사성을 반영하기 위해 |
+| 분류 모델 | SBERT embedding + Logistic Regression | 데이터셋 규모가 크지 않은 상황에서 학습/추론이 빠르고 baseline으로 안정적이기 때문 |
+| 세부 의도 분류 | Domain -> Intent 계층형 구조 | 업무 영역을 먼저 좁혀 세부 의도 오분류를 줄이기 위해 |
+| LLM 사용 범위 | 분류는 ML 모델, LLM은 요약/일정 추출 | 비용, 일관성, latency를 관리하기 위해 |
+| 모델 교체 | `preload -> validate -> switch` | 검증 실패 시 기존 모델을 유지하기 위해 |
+| 긴 작업 처리 | RabbitMQ 메시지 기반 처리 | 학습/배포 작업을 API 요청 흐름과 분리하기 위해 |
+| artifact 관리 | S3에 version 단위 저장 | 모델 파일, label mapping, metrics, config를 배포 단위로 관리하기 위해 |
+
+## 트러블슈팅 / 개선 경험
+
+| 항목 | 처리 방식 |
+|---|---|
+| 모델 artifact 파일명 혼재 | 로컬 legacy artifact와 SageMaker 표준 artifact 로딩 경로 분리 |
+| `latest.json` 버전 충돌 | `model_version`, `modelVersion` 값 충돌 시 오류 처리 |
+| 불완전한 artifact | SBERT core file, classifier, label mapping, config, metrics 필수 파일 검증 |
+| 모델 교체 중 검증 실패 | validate 실패 시 switch가 실행되지 않도록 staging validation flag 사용 |
+| LLM 영구 오류 | 분류 결과는 유지하고 summary fallback 적용 |
+| dataset overwrite 위험 | 기존 dataset을 S3에서 받아 병합/dedup 후 업로드 |
 
 ## 실제 서비스 예시
 
@@ -253,6 +256,15 @@ flowchart TD
 | 모델 학습 보조 | `tests/test_train_sbert_artifact.py`, `tests/test_training_cv_guards.py` |
 | 운영 지표/일정 파싱 | `tests/test_metrics_endpoint.py`, `tests/test_schedule_parser.py` |
 
+## AI 서버 담당 (전민지)
+
+- SBERT 기반 계층형 이메일 분류 구조 설계 및 inference pipeline 구현
+- FastAPI + RabbitMQ 기반 AI inference / deployment consumer 구현
+- SageMaker training container 및 S3 model artifact 관리 구조 구현
+- `preload -> validate -> switch` 기반 모델 교체 흐름 구현
+- Prometheus metrics 및 운영 모니터링 구성
+- dataset batch, message contract, deployment 관련 테스트 작성
+
 ## 디렉터리 구조
 
 ```text
@@ -262,58 +274,3 @@ messaging/    RabbitMQ consumer & publisher
 batch/        dataset batch
 tests/        API / MLOps / model tests
 ```
-
-## 주요 설계 결정
-
-| 고민한 지점 | 선택한 방식 | 이유 |
-|---|---|---|
-| 텍스트 표현 방식 | SBERT 기반 이메일 텍스트 임베딩 | 제목/본문의 의미적 유사성을 반영하기 위해 |
-| 분류 모델 | SBERT embedding + Logistic Regression | 데이터셋 규모가 크지 않은 상황에서 학습/추론이 빠르고 baseline으로 안정적이기 때문 |
-| 세부 의도 분류 | Domain -> Intent 계층형 구조 | 업무 영역을 먼저 좁혀 세부 의도 오분류를 줄이기 위해 |
-| LLM 사용 범위 | 분류는 ML 모델, LLM은 요약/일정 추출 | 비용, 일관성, latency를 관리하기 위해 |
-| 모델 교체 | `preload -> validate -> switch` | 검증 실패 시 기존 모델을 유지하기 위해 |
-| 긴 작업 처리 | RabbitMQ 메시지 기반 처리 | 학습/배포 작업을 API 요청 흐름과 분리하기 위해 |
-| artifact 관리 | S3에 version 단위 저장 | 모델 파일, label mapping, metrics, config를 배포 단위로 관리하기 위해 |
-
-## 트러블슈팅 / 개선 경험
-
-| 항목 | 처리 방식 |
-|---|---|
-| 모델 artifact 파일명 혼재 | 로컬 legacy artifact와 SageMaker 표준 artifact 로딩 경로 분리 |
-| `latest.json` 버전 충돌 | `model_version`, `modelVersion` 값 충돌 시 오류 처리 |
-| 불완전한 artifact | SBERT core file, classifier, label mapping, config, metrics 필수 파일 검증 |
-| 모델 교체 중 검증 실패 | validate 실패 시 switch가 실행되지 않도록 staging validation flag 사용 |
-| LLM 영구 오류 | 분류 결과는 유지하고 summary fallback 적용 |
-| dataset overwrite 위험 | 기존 dataset을 S3에서 받아 병합/dedup 후 업로드 |
-
-## 향후 개선 사항
-
-- held-out validation set 기반 `domain_accuracy`, `intent_f1` 평가로 전환
-- confidence threshold 기반 human-in-the-loop 검수 흐름 추가
-- active learning 기반 dataset 개선
-- LLM 요약/일정 추출 품질 평가 자동화
-- Grafana dashboard와 README 시각 자료 추가
-- 모델 A/B deployment 또는 canary 전환 구조 검토
-
-## 실행 방법
-
-```bash
-pip install -r requirements.txt
-uvicorn api.main:app --host 0.0.0.0 --port 8000
-pytest
-```
-
-Docker 실행:
-
-```bash
-docker build -t business-email-ai-server .
-docker run --env-file .env -p 8080:8080 business-email-ai-server
-```
-
-학습 컨테이너 entrypoint:
-
-```bash
-python -m src.mlops.training_container_entrypoint --dry-run
-```
-
-로컬 실행에는 `.env`, RabbitMQ 접속 정보, LLM provider 설정, 모델 artifact가 필요합니다. 환경변수 예시는 `.env.example`을 참고합니다.
