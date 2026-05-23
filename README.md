@@ -12,9 +12,8 @@
 - SBERT 기반 계층형 이메일 분류 구조 설계 및 inference pipeline 구현
 - FastAPI + RabbitMQ 기반 AI inference / deployment consumer 구현
 - SageMaker training container 및 S3 model artifact 관리 구조 구현
-- `preload → validate → switch` 기반 모델 교체 흐름 구현
-- Prometheus metrics 및 운영 모니터링 구성
-- dataset batch, message contract, deployment 관련 테스트 작성
+- `preload → validate → switch` 기반 무중단 배포 흐름 구현
+- 운영 모니터링 구성
 
 ## 서비스 링크
 
