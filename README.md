@@ -42,7 +42,7 @@ FastAPI · SentenceTransformers(SBERT) · Scikit-learn · RabbitMQ · SageMaker 
 
 ## Ⅰ. Domain 오분류 패턴 발견과 계층형 분류 설계
 
-추론 테스트를 진행하면서 **AI가 어떤 패턴에서 틀리는지**를 직접 분석했습니다.
+추론 테스트를 진행하면서 **AI가 어떤 패턴에서 틀리는지**를 분석했습니다.
 
 > confusion matrix를 분석하다가 **Finance 샘플 160개 중 21개가 Admin으로 분류**되는 것을 발견했습니다. "비용 처리" 관련 표현이 "행정 업무"와 임베딩 공간에서 가깝게 배치되어 있었고, **domain classifier의 Finance recall이 0.72**로 병목이 되고 있었습니다. domain이 틀리면 intent classifier 성능과 무관하게 오답을 낼 수밖에 없는 구조라, **domain 분류를 먼저 안정화하는 방향이 핵심**이라고 판단했습니다.
 
