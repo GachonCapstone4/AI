@@ -233,11 +233,11 @@ classifier를 무겁게 키우기보다 **embedding space 자체를 업무 inten
 
 ### 결과
 
-fine-tuning 후 도메인별 intra-class cosine similarity를 측정했습니다. **IT/Ops(0.98)**, **HR(0.93)** 처럼 intent 간 표현 다양성이 낮은 도메인은 클러스터링이 잘 됐고, **Customer Support(0.78)** 는 불만/문의/기술지원이 표현상 겹쳐 상대적으로 낮게 나왔습니다.
+fine-tuning 후 도메인별 intra-class cosine similarity를 측정했습니다. **IT/Ops(0.98), HR(0.93)**처럼 intent 간 표현 다양성이 낮은 도메인은 클러스터링이 잘 됐고, **Customer Support(0.78)**는 불만/문의/기술지원이 표현상 겹쳐 상대적으로 낮게 나왔습니다.
 
 ![도메인별 Intra-class 평균 Cosine Similarity](docs/intraclass_similarity.png)
 
-**Trade-off :** fine-tuning artifact 저장 누락 가능성이 있어, 학습 후 reload 및 필수 파일 검증 로직을 추가했습니다.
+**Trade-off:** fine-tuning artifact 저장 누락 가능성이 있어, 학습 후 reload 및 필수 파일 검증 로직을 추가했습니다.
 
 ## Ⅲ. 데이터 불균형 및 검증 전략
 
@@ -266,9 +266,9 @@ fine-tuning 후 도메인별 intra-class cosine similarity를 측정했습니다
 
 실제 현업 이메일에서 나타나는 구어체, 오타, 도메인 모호 케이스를 직접 **가이드라인으로 정의하고 노이즈 데이터를 추가 증강**했습니다.
 
-- **구어체 및 문법 파괴** ("확인부탁드림니다", "빨리좀요")
-- Admin/Finance처럼 경계가 모호한 **중의적 표현**
-- **맥락 생략** 및 **감정이 섞인 표현** ("저번에도 말씀드렸는데", "아 진짜 급한데")
+- 구어체 및 문법 파괴 ("확인부탁드림니다", "빨리좀요")
+- Admin/Finance처럼 경계가 모호한 중의적 표현
+- 맥락 생략 및 감정이 섞인 표현 ("저번에도 말씀드렸는데", "아 진짜 급한데")
 
 ### 결과
 
@@ -347,11 +347,13 @@ Prometheus 기반 metrics를 구성했습니다.
 
 <details>
 <summary>Grafana 모니터링 대시보드 보기</summary>
+
 ![Grafana 모니터링 대시보드](docs/모니터링.png)
- 
+
 > Model Confidence가 45.9%로 나타난 것은 실제 사용 계정으로 테스트하는 과정에서 **스팸·매크로 광고성 메일이 다수 유입**되었기 때문입니다. 업무 이메일 분류 모델 특성상 해당 유형은 학습 범위 밖의 입력으로, **정상적인 업무 이메일 환경에서는 분류가 안정적으로 동작**합니다.
- 
+
 </details>
+
 ---
 
 # 4-3. 데이터 / MLOps
