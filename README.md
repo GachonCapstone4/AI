@@ -90,7 +90,7 @@ Finance, HR, Marketing & PR, Sales는 도메인 특화 표현이 뚜렷해 **0.8
 - **실제 사용자 입력에 대한 robustness 향상**
 - ambiguous domain 케이스에서 오분류 감소
 
-## Ⅲ. Embedding 품질 검증 — SBERT Fine-tuning
+## Ⅲ. Embedding 품질 검증 - SBERT Fine-tuning
 
 분류 성능을 개선하기 전에 **embedding space가 업무 의도를 제대로 표현하고 있는지**부터 확인했습니다.
 
