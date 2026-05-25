@@ -345,10 +345,13 @@ Prometheus 기반 metrics를 구성했습니다.
 - latency / confidence / error 추적 가능
 - active model version 기반 배포 전후 비교 가능
 
+<details>
+<summary>Grafana 모니터링 대시보드 보기</summary>
 ![Grafana 모니터링 대시보드](docs/모니터링.png)
-
+ 
 > Model Confidence가 45.9%로 나타난 것은 실제 사용 계정으로 테스트하는 과정에서 **스팸·매크로 광고성 메일이 다수 유입**되었기 때문입니다. 업무 이메일 분류 모델 특성상 해당 유형은 학습 범위 밖의 입력으로, **정상적인 업무 이메일 환경에서는 분류가 안정적으로 동작**합니다.
-
+ 
+</details>
 ---
 
 # 4-3. 데이터 / MLOps
