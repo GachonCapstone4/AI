@@ -95,16 +95,14 @@ Finance, HR, Marketing & PR, Sales는 도메인 특화 표현이 뚜렷해 **0.8
 
 ## Ⅲ. Embedding 품질 검증 - SBERT Fine-tuning
 
-분류 성능을 개선하기 전에 **embedding space가 업무 의도를 제대로 표현하고 있는지**부터 확인했습니다.
+기본 multilingual SBERT만으로는 업무 이메일 특화 표현을 충분히 반영하지 못해, Contrastive Pair 기반 SBERT fine-tuning을 적용했습니다.
 
-기본 multilingual SBERT만으로는 업무 이메일 특화 표현을 충분히 반영하지 못했기 때문에, **Contrastive Pair 기반 SBERT fine-tuning**을 적용했습니다.
+같은 intent는 가깝게, 헷갈리기 쉬운 intent는 구분되도록 학습시켜 업무 이메일 의미 표현을 개선했습니다.
 
-- **Positive** : 같은 intent 이메일 쌍
-- **Hard Negative** : 같은 domain의 다른 intent (가장 헷갈리기 쉬운 쌍)
+fine-tuning 이후 도메인별 intra-class cosine similarity로 embedding 품질을 분석했습니다.
+IT/Ops(0.98), HR(0.93)은 intent 간 표현이 비교적 명확해 높은 유사도를 보였고, Customer Support(0.78)는 문의·불만·기술지원 표현이 겹쳐 상대적으로 낮게 나타났습니다.
 
-classifier를 무겁게 키우기보다 **embedding space 자체를 업무 intent 기준으로 정렬**하는 방향을 선택했습니다.
-
-fine-tuning 후 도메인별 intra-class cosine similarity로 embedding 품질을 측정했습니다. **IT/Ops(0.98)**, **HR(0.93)**처럼 intent 간 표현이 명확히 다른 도메인은 클러스터링이 잘 됐고, **Customer Support(0.78)** 는 불만/문의/기술지원 표현이 겹쳐 상대적으로 낮게 나왔습니다. 이 수치가 낮은 도메인이 실제로 오분류도 많이 나오는 도메인과 일치했습니다.
+실제로 유사도가 낮은 도메인일수록 오분류도 많이 발생해, 모델이 어떤 유형의 입력에 취약한지 함께 확인할 수 있었습니다.
 
 ![도메인별 Intra-class 평균 Cosine Similarity](docs/intraclass_similarity.png)
 
