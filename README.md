@@ -22,9 +22,9 @@
 - **AI 응답 품질 분석** - 오분류 패턴 분석 및 계층형 분류 구조 설계
 - **사용자 입력 robustness 검증** - 실제 사용자 입력을 반영한 테스트 및 데이터 개선 진행
 - **테스트 시나리오 설계** - 다양한 상황을 가정한 AI 응답 품질 검증
-- **AI 품질 모니터링** - AI 품질 모니터링 구성
+- **AI 품질 모니터링** - Prometheus + Grafana 기반 confidence / latency / error 추적 구성
 - **inference pipeline 설계** - SBERT 기반 이메일 분류 및 LLM fallback 구조 구현
-- **무중단 모델 배포** - 무중단 모델 배포 파이프라인 구현
+- **무중단 모델 배포** - `preload → validate → switch` 기반 배포 및 SageMaker training pipeline 구현
 
 <details>
 <summary>기술 스택 보기</summary>
@@ -96,16 +96,16 @@ Finance, HR, Marketing & PR, Sales는 도메인 특화 표현이 뚜렷해 **0.8
 
 기본 multilingual SBERT만으로는 업무 이메일 특화 표현을 충분히 반영하지 못했기 때문에, **Contrastive Pair 기반 SBERT fine-tuning**을 적용했습니다.
 
-- **Positive**: 같은 intent 이메일 쌍
-- **Hard Negative**: 같은 domain의 다른 intent (가장 헷갈리기 쉬운 쌍)
+- **Positive** : 같은 intent 이메일 쌍
+- **Hard Negative** : 같은 domain의 다른 intent (가장 헷갈리기 쉬운 쌍)
 
 classifier를 무겁게 키우기보다 **embedding space 자체를 업무 intent 기준으로 정렬**하는 방향을 선택했습니다.
 
-fine-tuning 후 도메인별 intra-class cosine similarity로 embedding 품질을 측정했습니다. **IT/Ops(0.98), HR(0.93)**처럼 intent 간 표현이 명확히 다른 도메인은 클러스터링이 잘 됐고, **Customer Support(0.78)**는 불만/문의/기술지원 표현이 겹쳐 상대적으로 낮게 나왔습니다. 이 수치가 낮은 도메인이 실제로 오분류도 많이 나오는 도메인과 일치했습니다.
+fine-tuning 후 도메인별 intra-class cosine similarity로 embedding 품질을 측정했습니다. **IT/Ops(0.98)**, **HR(0.93)**처럼 intent 간 표현이 명확히 다른 도메인은 클러스터링이 잘 됐고, **Customer Support(0.78)** 는 불만/문의/기술지원 표현이 겹쳐 상대적으로 낮게 나왔습니다. 이 수치가 낮은 도메인이 실제로 오분류도 많이 나오는 도메인과 일치했습니다.
 
 ![도메인별 Intra-class 평균 Cosine Similarity](docs/intraclass_similarity.png)
 
-**Trade-off:** fine-tuning artifact 저장 누락 가능성이 있어, 학습 후 reload 및 필수 파일 검증 로직을 추가했습니다.
+**Trade-off :** fine-tuning artifact 저장 누락 가능성이 있어, 학습 후 reload 및 필수 파일 검증 로직을 추가했습니다.
 
 ## Ⅳ. 데이터 불균형과 평가 지표 선택
 
@@ -113,7 +113,7 @@ fine-tuning 후 도메인별 intra-class cosine similarity로 embedding 품질�
 
 accuracy 중심으로 평가하면 데이터가 많은 클래스만 잘 맞추는 모델이 좋아 보일 수 있습니다. 실제 서비스에서 소수 intent의 오분류는 사용자 경험에 직접 영향을 미치기 때문에, **소수 클래스 성능이 묻히지 않도록 macro F1 기반 검증 전략**을 함께 사용했습니다.
 
-**Trade-off:** macro F1은 전체 accuracy보다 낮게 측정될 수 있지만, **실제 intent별 일반화 성능**을 더 잘 반영합니다.
+**Trade-off :** macro F1은 전체 accuracy보다 낮게 측정될 수 있지만, **실제 intent별 일반화 성능**을 더 잘 반영합니다.
 
 ---
 
@@ -281,7 +281,7 @@ flowchart TD
 | validate | `POST /deployment/validate` | 샘플 추론 및 label mapping 검증 |
 | switch | `POST /deployment/switch` | 검증된 staging 모델을 current model로 전환 |
 
-**Trade-off:** current / staging 모델이 동시에 메모리에 올라가기 때문에 **일시적으로 메모리 사용량이 증가**할 수 있습니다.
+**Trade-off :** current / staging 모델이 동시에 메모리에 올라가기 때문에 **일시적으로 메모리 사용량이 증가**할 수 있습니다.
 
 ```mermaid
 sequenceDiagram
