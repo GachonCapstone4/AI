@@ -330,6 +330,7 @@ legacy artifact와 SageMaker artifact 구조가 혼재되어 **runtime load fail
 | Domain 수 | 7 |
 | Intent 수 | 30 |
 
+>실제 업무용 이메일 데이터셋을 구하기 어려워, **LLM을 활용해 카테고리별 프롬프트 기반으로 학습 데이터를 직접 생성**했습니다.
 ---
 
 # 회고 / 한계
