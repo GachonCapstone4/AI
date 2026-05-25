@@ -4,50 +4,8 @@
 
 ![README Hero Diagram](docs/README%20Hero%20Diagram.png)
 
----
-
-# AI 서버 담당 (전민지)
-
-- SBERT 기반 계층형 이메일 분류 구조 설계 및 inference pipeline 구현
-- FastAPI + RabbitMQ 기반 AI inference / deployment consumer 구현
-- SageMaker training container 및 S3 model artifact 관리 구조 구현
-- `preload → validate → switch` 기반 무중단 배포 흐름 구현
-- 운영 모니터링 구성
-
----
-
-# 서비스 링크
-
-- Production URL: https://capstone.studylink.click/
-
-실제 운영 중인 업무 이메일 AI 자동화 서비스입니다.
-
----
-
-# AI 서버 핵심 기능
-
-- 이메일 제목/본문 기반 `Domain / Intent` 자동 분류
-- `SBERT → Domain Logistic Regression → Domain별 Intent Logistic Regression` 계층형 분류
-- LLM 기반 이메일 요약 및 일정 정보 추출
-- FastAPI 동기 inference API와 RabbitMQ 비동기 consumer 제공
-- S3 model artifact와 `latest.json` 기반 모델 버전 관리
-- `preload → validate → switch` 기반 모델 교체
-- SageMaker training container, Kubernetes dataset batch, Prometheus metrics 구성
-
----
-
-# 기술 스택
-
-| 영역 | 기술 |
-|---|---|
-| API 서버 | FastAPI, Uvicorn, Pydantic |
-| 모델 | SentenceTransformers, SBERT, Scikit-learn LogisticRegression |
-| LLM 연동 | 학교 GPU 서버 기반 LLM API (Qwen3.5-35B-A3B) |
-| 비동기 처리 | RabbitMQ |
-| MLOps | SageMaker Training Job, S3, Kubernetes Job |
-| 모니터링 | Prometheus metrics |
-| 테스트 | pytest, FastAPI TestClient |
-| 실행 환경 | Docker, Python 3.11 |
+> 실제 운영 중인 업무 이메일 자동화 AI 서비스  
+> Production URL: https://capstone.studylink.click/
 
 ---
 
@@ -71,25 +29,66 @@
 
 ---
 
+# AI 서버 담당 (전민지)
+
+<details>
+<summary><strong>AI 서버 상세 구현 내용 보기</strong></summary>
+
+<br>
+
+- SBERT 기반 계층형 이메일 분류 구조 설계 및 inference pipeline 구현
+- FastAPI + RabbitMQ 기반 AI inference / deployment consumer 구현
+- SageMaker training container 및 S3 model artifact 관리 구조 구현
+- `preload → validate → switch` 기반 무중단 배포 흐름 구현
+- Prometheus 기반 운영 모니터링 구성
+
+</details>
+
+---
+
+# AI 서버 핵심 기능
+
+- 이메일 제목/본문 기반 `Domain / Intent` 자동 분류
+- `SBERT → Domain Logistic Regression → Domain별 Intent Logistic Regression` 계층형 분류
+- LLM 기반 이메일 요약 및 일정 정보 추출
+- FastAPI 동기 inference API와 RabbitMQ 비동기 consumer 제공
+- S3 model artifact와 `latest.json` 기반 모델 버전 관리
+- `preload → validate → switch` 기반 모델 교체
+- SageMaker training container, Kubernetes dataset batch, Prometheus metrics 구성
+
+<details>
+<summary>기술 스택 보기</summary>
+
+| 영역 | 기술 |
+|---|---|
+| API 서버 | FastAPI, Uvicorn, Pydantic |
+| 모델 | SentenceTransformers, SBERT, Scikit-learn LogisticRegression |
+| LLM 연동 | 학교 GPU 서버 기반 LLM API (Qwen3.5-35B-A3B) |
+| 비동기 처리 | RabbitMQ |
+| MLOps | SageMaker Training Job, S3, Kubernetes Job |
+| 모니터링 | Prometheus metrics |
+| 테스트 | pytest, FastAPI TestClient |
+| 실행 환경 | Docker, Python 3.11 |
+
+</details>
+
+---
+
 # 왜 이런 AI 구조를 선택했는가
 
-## 왜 SBERT + Logistic Regression인가
+## 1. SBERT + Logistic Regression 기반 분류 구조
 
 - 데이터셋 규모가 크지 않은 환경에서 추론 속도와 운영 안정성을 고려
 - SBERT는 문맥 기반 의미 표현을 담당하고, 실제 분류는 가벼운 Logistic Regression으로 수행
 - GPU 의존도를 줄이고 CPU 환경에서도 안정적으로 서빙 가능하도록 설계
 
----
-
-## 왜 Domain → Intent 계층형 분류 구조인가
+## 2. Domain → Intent 계층형 분류 구조
 
 - 전체 intent를 한 번에 분류하면 서로 다른 업무 영역 간 오분류 발생
 - 먼저 domain으로 업무 영역을 좁힌 뒤 domain별 intent classifier를 수행하도록 구성
 - intent 후보군을 줄여 세부 의도 분류 안정성 확보
 
----
-
-## 데이터셋 및 분류 범위
+### 데이터셋 및 분류 범위
 
 | 항목 | 값 |
 |---|---:|
@@ -146,17 +145,13 @@
 
 </details>
 
----
-
-## 왜 LLM은 후처리만 담당하는가
+## 3. LLM은 후처리에만 사용
 
 - LLM 단독 분류는 비용, latency, 응답 일관성 문제 존재
 - domain / intent 분류는 deterministic한 ML 모델이 담당
 - LLM은 summary, 일정 추출 같은 생성 기반 후처리에만 사용
 
----
-
-## 왜 RabbitMQ 기반 비동기 추론 구조인가
+## 4. RabbitMQ 기반 비동기 추론 구조
 
 - LLM 호출 및 일정 파싱은 latency variability 존재
 - backend와 AI inference를 느슨하게 분리하기 위해 RabbitMQ 기반 async pipeline 적용
@@ -174,8 +169,6 @@
 - 분류 이후 LLM 기반 summary / 일정 추출 수행
 - 분류와 생성 역할을 분리해 inference consistency 확보
 
----
-
 ## 계층형 분류 구조
 
 ![계층형 모델 구조](docs/계층형%20모델%20구조.png)
@@ -188,8 +181,6 @@
 | Intent Classifier | `dict[str, LogisticRegression]` | Domain별 세부 intent 분류 |
 | LLM Processor | 학교 GPU 서버 기반 LLM API | 요약 및 일정 표현 추출 |
 
----
-
 ## AI 운영 및 MLOps 아키텍처
 
 ![AI 운영 및 MLOps 아키텍처](docs/AI%20운영%20및%20MLOps%20아키텍처%20다이어그램.png)
@@ -197,8 +188,6 @@
 - Dataset batch → SageMaker training → S3 artifact → AI deployment 흐름 구성
 - 재수집 / 재학습 / 재배포 단계를 분리해 운영 안정성 확보
 - `latest.json` 기반 active model version 관리
-
----
 
 ## 무중단 모델 배포 흐름
 
@@ -215,7 +204,7 @@
 
 ---
 
-# Engineering Challenges
+# 기술적 문제 해결 및 운영 경험
 
 # 4-1. 모델 설계 및 학습
 
@@ -250,8 +239,6 @@
 cross-domain confusion을 줄이고 domain-aware classifier를 운영할 수 있도록 설계했습니다.
 
 </details>
-
----
 
 ## Contrastive Pair 기반 SBERT Fine-tuning
 
@@ -289,8 +276,6 @@ classifier를 무겁게 키우기보다 embedding space 자체를 업무 intent 
 fine-tuning artifact 저장 누락 가능성이 있어,
 학습 후 reload 및 필수 파일 검증 로직을 추가했습니다.
 
----
-
 ### 모델 학습 흐름
 
 ```mermaid
@@ -307,8 +292,6 @@ flowchart TD
 ```
 
 </details>
-
----
 
 ## SBERT + Logistic Regression 기반 경량 추론 구조
 
@@ -340,13 +323,7 @@ SBERT embedding + Logistic Regression 기반 경량 분류 구조를 적용했�
 문맥 표현은 SBERT가 담당하고,
 실제 분류는 가벼운 ML 모델로 처리해 운영 효율성과 추론 안정성을 확보했습니다.
 
-### Trade-off
-end-to-end deep classifier보다 표현력이 제한될 수 있지만,
-운영 안정성과 latency를 우선했습니다.
-
 </details>
-
----
 
 ## 데이터 불균형 및 검증 전략
 
@@ -423,8 +400,6 @@ staging 영역에서 검증 후 switch하도록 구성해,
 current / staging 모델이 동시에 메모리에 올라가기 때문에
 일시적으로 메모리 사용량이 증가할 수 있습니다.
 
----
-
 ### preload → validate → switch sequence
 
 ```mermaid
@@ -449,15 +424,13 @@ sequenceDiagram
 
 </details>
 
----
-
 ## 비동기 추론 및 장애 격리 구조
 
 ### 문제
-LLM 호출 및 후처리 과정에서 backend 응답 지연과 장애 전파 위험 존재
+LLM 호출 및 후처리 과정에서 backend 응답 지연과 장애 전파 위험이 존재했습니다.
 
 ### 해결
-RabbitMQ 기반 async inference pipeline 구성
+RabbitMQ 기반 async inference pipeline을 구성했습니다.
 
 ### 결과
 - retry / DLQ 기반 장애 격리
@@ -483,15 +456,13 @@ retry / DLQ 기반 장애 격리를 가능하게 했습니다.
 
 </details>
 
----
-
 ## LLM fallback 처리
 
 ### 문제
-LLM 장애 발생 시 전체 응답 실패 가능성 존재
+LLM 장애 발생 시 전체 응답 실패 가능성이 존재했습니다.
 
 ### 해결
-분류와 생성 역할을 분리하고 summary fallback 처리 적용
+분류와 생성 역할을 분리하고 summary fallback 처리를 적용했습니다.
 
 ### 결과
 - LLM 실패 시에도 domain / intent 분류 결과 유지
@@ -516,15 +487,13 @@ classification 결과를 독립적으로 유지했습니다.
 
 </details>
 
----
-
 ## Monitoring 및 운영 지표 구성
 
 ### 문제
-모델 교체 이후 latency 증가나 confidence 저하를 추적할 수단 필요
+모델 교체 이후 latency 증가나 confidence 저하를 추적할 수단이 필요했습니다.
 
 ### 해결
-Prometheus 기반 metrics 구성
+Prometheus 기반 metrics를 구성했습니다.
 
 ### 결과
 - latency / confidence / error 추적 가능
@@ -551,10 +520,10 @@ Prometheus 기반 metrics 구성
 ## dataset merge / dedup 전략
 
 ### 문제
-새 dataset overwrite 시 기존 데이터 유실 및 중복 누적 위험 존재
+새 dataset overwrite 시 기존 데이터 유실 및 중복 누적 위험이 존재했습니다.
 
 ### 해결
-기존 dataset 다운로드 후 merge / dedup 수행
+기존 dataset 다운로드 후 merge / dedup을 수행했습니다.
 
 ### 결과
 - 데이터 유실 방지
@@ -583,8 +552,6 @@ merge / dedup 전략을 선택했습니다.
 
 </details>
 
----
-
 ## 모델 Artifact 표준화
 
 ### 문제
@@ -598,17 +565,31 @@ legacy artifact와 SageMaker artifact 구조가 혼재되어 runtime load failur
 - deployment validation 가능
 - 모델 로딩 consistency 향상
 
-</details>
+<details>
+<summary>Artifact 관리 전략 보기</summary>
 
----
+### 디버깅
+- artifact load failure 분석
+- missing file 상황 검증
+- legacy naming 충돌 확인
+
+### 선택지
+1. local artifact naming 유지
+2. SageMaker artifact 구조 표준화
+
+### 선택한 이유
+운영 환경에서 artifact consistency를 유지하기 위해
+표준 artifact 구조를 정의했습니다.
+
+</details>
 
 ## latest.json 기반 모델 버전 관리
 
 ### 문제
-active model version 관리 및 rollback 기준 필요
+active model version 관리 및 rollback 기준이 필요했습니다.
 
 ### 해결
-`latest.json` 기반 active candidate model 관리
+`latest.json` 기반 active candidate model 관리 구조를 적용했습니다.
 
 ### 결과
 - 운영 서버의 모델 버전 관리 단순화
@@ -638,28 +619,18 @@ latest.json 기반 구조를 적용했습니다.
 
 ![실행 서비스 화면](docs/실행%20서비스%20화면.png)
 
-실제 서비스 환경에서 이메일 분류 및 요약 기능을 운영했습니다.
-
-### 운영 구성
-- RabbitMQ 기반 async inference pipeline 운영
-- preload → validate → switch 기반 무중단 모델 교체
-- Prometheus 기반 latency / confidence / error monitoring
-- retry / DLQ 기반 장애 처리 구조 운영
-
-### 서비스 기능
-- Domain / Intent 예측
-- 이메일 요약
-- 일정 정보 추출
-- 사용자 맞춤 답장 초안 생성
+> 실제 서비스 화면에서 이메일 분류, 요약, 일정 추출,
+> 사용자 맞춤형 답장 초안 생성 기능을 확인할 수 있습니다.
 
 ---
 
 # 테스트 전략
 
-AI 모델 정확도뿐 아니라,  
+AI 모델 정확도뿐 아니라,
 배포 안정성·메시지 계약·운영 장애 상황까지 테스트 대상으로 포함했습니다.
 
-## 주요 테스트 시나리오
+<details>
+<summary>주요 테스트 시나리오 보기</summary>
 
 - deployment validation 실패 시 switch 차단 검증
 - malformed payload schema validation
@@ -670,9 +641,10 @@ AI 모델 정확도뿐 아니라,
 - latest.json 불일치 상황 테스트
 - current/staging model isolation 검증
 
----
+</details>
 
-## 테스트 범위
+<details>
+<summary>테스트 범위 보기</summary>
 
 | 범위 | 테스트 파일 |
 |---|---|
@@ -683,6 +655,8 @@ AI 모델 정확도뿐 아니라,
 | 모델 학습 보조 | `tests/test_train_sbert_artifact.py`, `tests/test_training_cv_guards.py` |
 | 운영 지표/일정 파싱 | `tests/test_metrics_endpoint.py`, `tests/test_schedule_parser.py` |
 
+</details>
+
 ---
 
 # 회고 / 한계
@@ -691,16 +665,3 @@ AI 모델 정확도뿐 아니라,
 - 계층형 구조 특성상 domain classifier 오류가 intent 단계까지 전파될 수 있음
 - current/staging 모델 동시 로드로 메모리 사용량 증가 trade-off 존재
 - Prometheus label cardinality 증가 가능성 고려 필요
-- 향후 confidence 기반 human-in-the-loop 검증 구조 추가 예정
-
----
-
-# 디렉터리 구조
-
-```text
-api/          FastAPI router & schema
-src/          inference / training / metrics
-messaging/    RabbitMQ consumer & publisher
-batch/        dataset batch
-tests/        API / MLOps / model tests
-```
