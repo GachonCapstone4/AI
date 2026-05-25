@@ -34,8 +34,6 @@
 - `preload → validate → switch` 기반 무중단 모델 배포 구조 구현
 - Prometheus 기반 운영 모니터링 및 테스트 구성
 
-</details>
-
 ---
 
 # AI 서버 핵심 기능
@@ -149,6 +147,21 @@
 - backend와 AI inference를 느슨하게 분리하기 위해 RabbitMQ 기반 async pipeline 적용
 - retry / DLQ 기반 장애 격리 구조 구성
 
+## 모델 학습 흐름
+
+```mermaid
+flowchart TD
+    A["dataset_new.csv<br/>email_text, domain, intent"] --> B["Contrastive pair 생성"]
+    B --> C["SBERT fine-tuning"]
+    C --> D["email_text embedding 생성"]
+    D --> E["Domain Logistic Regression 학습"]
+    D --> F["Domain별 Intent Logistic Regression 학습"]
+    E --> G["domain_model.pkl"]
+    F --> H["intent_model.pkl"]
+    G --> I["metrics.json / config.json / label_mapping.json"]
+    H --> I
+```
+
 ---
 
 # 핵심 아키텍처
@@ -193,6 +206,28 @@
 | preload | `POST /deployment/preload` | staging 영역에 새 모델 로드 |
 | validate | `POST /deployment/validate` | 샘플 추론 및 label mapping 검증 |
 | switch | `POST /deployment/switch` | 검증된 staging 모델을 current model로 전환 |
+
+### preload → validate → switch sequence
+
+```mermaid
+sequenceDiagram
+    participant Admin as Admin/Backend
+    participant AI as AI FastAPI Server
+    participant S3 as S3 Model Artifact
+    participant Current as Current Model
+    participant Staging as Staging Model
+
+    Admin->>AI: POST /deployment/preload
+    AI->>S3: models/{version}/ 다운로드
+    AI->>Staging: staging_bundle 로드
+
+    Admin->>AI: POST /deployment/validate
+    AI->>Staging: 샘플 추론
+    AI->>Staging: label_mapping 검증
+
+    Admin->>AI: POST /deployment/switch
+    AI->>Current: 검증된 staging 모델을 current로 전환
+```
 
 ---
 
@@ -267,21 +302,6 @@ classifier를 무겁게 키우기보다 embedding space 자체를 업무 intent 
 ### Trade-off
 fine-tuning artifact 저장 누락 가능성이 있어,
 학습 후 reload 및 필수 파일 검증 로직을 추가했습니다.
-
-### 모델 학습 흐름
-
-```mermaid
-flowchart TD
-    A["dataset_new.csv<br/>email_text, domain, intent"] --> B["Contrastive pair 생성"]
-    B --> C["SBERT fine-tuning"]
-    C --> D["email_text embedding 생성"]
-    D --> E["Domain Logistic Regression 학습"]
-    D --> F["Domain별 Intent Logistic Regression 학습"]
-    E --> G["domain_model.pkl"]
-    F --> H["intent_model.pkl"]
-    G --> I["metrics.json / config.json / label_mapping.json"]
-    H --> I
-```
 
 </details>
 
@@ -391,28 +411,6 @@ staging 영역에서 검증 후 switch하도록 구성해,
 ### Trade-off
 current / staging 모델이 동시에 메모리에 올라가기 때문에
 일시적으로 메모리 사용량이 증가할 수 있습니다.
-
-### preload → validate → switch sequence
-
-```mermaid
-sequenceDiagram
-    participant Admin as Admin/Backend
-    participant AI as AI FastAPI Server
-    participant S3 as S3 Model Artifact
-    participant Current as Current Model
-    participant Staging as Staging Model
-
-    Admin->>AI: POST /deployment/preload
-    AI->>S3: models/{version}/ 다운로드
-    AI->>Staging: staging_bundle 로드
-
-    Admin->>AI: POST /deployment/validate
-    AI->>Staging: 샘플 추론
-    AI->>Staging: label_mapping 검증
-
-    Admin->>AI: POST /deployment/switch
-    AI->>Current: 검증된 staging 모델을 current로 전환
-```
 
 </details>
 
