@@ -15,10 +15,8 @@
 하지만 실제 업무 환경에서는 메일 내용을 직접 읽고 업무를 분류해야 하고,
 일정 여부를 확인하거나 반복적으로 답장을 작성해야 하는 경우가 많습니다.
 
-이 프로젝트는 이러한 반복적인 이메일 처리 부담을 줄이기 위해 시작했습니다.
-
-이메일의 업무 의도를 자동 분류하고,
-요약 및 일정 정보를 추출하며,
+이 프로젝트는 이러한 반복적인 이메일 처리 부담을 줄이기 위해 시작했으며,
+이메일의 업무 의도를 자동 분류하고 요약 및 일정 정보를 추출해
 사용자 맞춤형 답장 초안을 생성할 수 있도록 구성했습니다.
 
 > **분류는 SBERT 기반 ML 모델이 담당하고,  
@@ -202,7 +200,7 @@
 
 # 4-1. 모델 설계 및 학습
 
-## Domain → Intent 계층형 분류 구조 도입
+## Ⅰ. Domain → Intent 계층형 분류 구조 도입
 
 ### 문제
 전체 intent를 한 번에 분류하자 서로 다른 업무 영역 간 intent confusion이 발생했습니다.
@@ -234,7 +232,7 @@ cross-domain confusion을 줄이고 domain-aware classifier를 운영할 수 있
 
 </details>
 
-## Contrastive Pair 기반 SBERT Fine-tuning
+## Ⅱ. Contrastive Pair 기반 SBERT Fine-tuning
 
 ### 문제
 기본 multilingual SBERT만으로는 업무 이메일 특화 표현을 충분히 반영하지 못했습니다.
@@ -287,7 +285,7 @@ flowchart TD
 
 </details>
 
-## SBERT + Logistic Regression 기반 경량 추론 구조
+## Ⅲ. SBERT + Logistic Regression 기반 경량 추론 구조
 
 ### 문제
 대형 Transformer나 LLM 기반 분류는 latency와 운영 비용 부담이 컸습니다.
@@ -319,7 +317,7 @@ SBERT embedding + Logistic Regression 기반 경량 분류 구조를 적용했�
 
 </details>
 
-## 데이터 불균형 및 검증 전략
+## Ⅳ. 데이터 불균형 및 검증 전략
 
 ### 문제
 특정 domain / intent에 데이터가 편중되어 소수 클래스 성능 왜곡 위험이 존재했습니다.
@@ -359,7 +357,7 @@ macro F1은 전체 accuracy보다 낮게 측정될 수 있지만,
 
 # 4-2. AI 서비스 테스트 및 운영 안정화
 
-## 검증 기반 무중단 모델 배포 구조
+## Ⅰ. 검증 기반 무중단 모델 배포 구조
 
 ### 문제
 잘못된 모델 artifact가 배포되면 운영 추론 전체가 실패할 수 있었습니다.
@@ -418,7 +416,7 @@ sequenceDiagram
 
 </details>
 
-## 비동기 추론 및 장애 격리 구조
+## Ⅱ. 비동기 추론 및 장애 격리 구조
 
 ### 문제
 LLM 호출 및 후처리 과정에서 backend 응답 지연과 장애 전파 위험이 존재했습니다.
@@ -450,7 +448,7 @@ retry / DLQ 기반 장애 격리를 가능하게 했습니다.
 
 </details>
 
-## LLM fallback 처리
+## Ⅲ. LLM fallback 처리
 
 ### 문제
 LLM 장애 발생 시 전체 응답 실패 가능성이 존재했습니다.
@@ -481,7 +479,7 @@ classification 결과를 독립적으로 유지했습니다.
 
 </details>
 
-## Monitoring 및 운영 지표 구성
+## Ⅳ. Monitoring 및 운영 지표 구성
 
 ### 문제
 모델 교체 이후 latency 증가나 confidence 저하를 추적할 수단이 필요했습니다.
@@ -511,7 +509,7 @@ Prometheus 기반 metrics를 구성했습니다.
 
 # 4-3. 데이터 / MLOps
 
-## dataset merge / dedup 전략
+## Ⅰ. dataset merge / dedup 전략
 
 ### 문제
 새 dataset overwrite 시 기존 데이터 유실 및 중복 누적 위험이 존재했습니다.
@@ -546,7 +544,7 @@ merge / dedup 전략을 선택했습니다.
 
 </details>
 
-## 모델 Artifact 표준화
+## Ⅱ. 모델 Artifact 표준화
 
 ### 문제
 legacy artifact와 SageMaker artifact 구조가 혼재되어 runtime load failure 위험이 존재했습니다.
@@ -577,7 +575,7 @@ legacy artifact와 SageMaker artifact 구조가 혼재되어 runtime load failur
 
 </details>
 
-## latest.json 기반 모델 버전 관리
+## Ⅲ. latest.json 기반 모델 버전 관리
 
 ### 문제
 active model version 관리 및 rollback 기준이 필요했습니다.
@@ -626,14 +624,16 @@ AI 모델 정확도뿐 아니라,
 <details>
 <summary>주요 테스트 시나리오 보기</summary>
 
-- deployment validation 실패 시 switch 차단 검증
-- malformed payload schema validation
-- retry / DLQ 정책 검증
-- message contract validation
-- schedule extraction edge case 테스트
-- artifact 누락 검증
-- latest.json 불일치 상황 테스트
-- current/staging model isolation 검증
+| 테스트 항목 | 검증 내용 |
+|---|---|
+| Deployment Validation | validation 실패 시 switch 차단 검증 |
+| Payload Validation | malformed payload schema validation |
+| Retry / DLQ | retry 정책 및 DLQ 처리 검증 |
+| Message Contract | producer-consumer message contract 검증 |
+| Schedule Extraction | 일정 추출 edge case 테스트 |
+| Artifact Validation | artifact 누락 및 integrity 검증 |
+| Model Versioning | latest.json 불일치 상황 테스트 |
+| Model Isolation | current / staging model isolation 검증 |
 
 </details>
 
