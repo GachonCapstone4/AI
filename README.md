@@ -19,12 +19,12 @@
 
 # 담당 역할 (전민지)
 
-- **AI 응답 품질 분석** — confusion matrix 기반 domain 오분류 패턴 분석 및 계층형 분류 구조 설계
-- **사용자 입력 robustness 검증** — 실제 업무 환경의 noisy input 유형 정의 및 데이터 증강 설계
-- **테스트 시나리오 설계** — ambiguous intent / edge case / noisy email 기반 AI 응답 품질 검증
-- **AI 품질 모니터링** — Prometheus + Grafana 기반 confidence / latency / error 추적 구성
-- **inference pipeline 설계** — SBERT 기반 계층형 분류 및 LLM fallback 처리 구조 구현
-- **무중단 모델 배포** — `preload → validate → switch` 기반 배포 및 SageMaker training pipeline 구현
+- **AI 응답 품질 분석** - 오분류 패턴 분석 및 계층형 분류 구조 설계
+- **사용자 입력 robustness 검증** - 실제 사용자 입력을 반영한 테스트 및 데이터 개선 진행
+- **테스트 시나리오 설계** - 다양한 상황을 가정한 AI 응답 품질 검증
+- **AI 품질 모니터링** - AI 품질 모니터링 구성
+- **inference pipeline 설계** - SBERT 기반 이메일 분류 및 LLM fallback 구조 구현
+- **무중단 모델 배포** - 무중단 모델 배포 파이프라인 구현
 
 <details>
 <summary>기술 스택 보기</summary>
