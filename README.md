@@ -10,13 +10,13 @@
 
 # 문제 정의
 
-업무 이메일은 일정 조율, 비용 처리, 협조 요청, 고객 문의 대응 등 다양한 업무의 시작점이 됩니다.
+업무 이메일은 **일정 조율, 비용 처리, 협조 요청, 고객 문의 대응** 등 다양한 업무의 시작점이 됩니다.
 
 하지만 실제 업무 환경에서는 메일 내용을 직접 읽고 업무를 분류해야 하고,
-일정 여부를 확인하거나 반복적으로 답장을 작성해야 하는 경우가 많습니다.
+일정 여부를 확인하거나 **반복적으로 답장을 작성해야 하는 경우가 많습니다.**
 
 이 프로젝트는 이러한 반복적인 이메일 처리 부담을 줄이기 위해 시작했으며,
-이메일의 업무 의도를 자동 분류하고 요약 및 일정 정보를 추출해
+**이메일의 업무 의도를 자동 분류**하고 요약 및 일정 정보를 추출해
 사용자 맞춤형 답장 초안을 생성할 수 있도록 구성했습니다.
 
 > **분류는 SBERT 기반 ML 모델이 담당하고,  
@@ -28,10 +28,10 @@
 
 # AI 서버 담당 (전민지)
 
-- SBERT 기반 계층형 이메일 분류 및 inference pipeline 설계
+- **SBERT 기반 계층형 이메일 분류** 및 inference pipeline 설계
 - FastAPI + RabbitMQ 기반 AI inference / deployment consumer 구현
 - SageMaker training pipeline 및 S3 model artifact 관리 구조 구현
-- `preload → validate → switch` 기반 무중단 모델 배포 구조 구현
+- **`preload → validate → switch` 기반 무중단 모델 배포** 구조 구현
 - Prometheus 기반 운영 모니터링 및 테스트 구성
 
 <details>
@@ -59,20 +59,20 @@ FastAPI · SentenceTransformers(SBERT) · Scikit-learn · RabbitMQ · SageMaker 
 
 ## 1. SBERT + Logistic Regression 기반 분류 구조
 
-- 데이터셋 규모가 크지 않은 환경에서 추론 속도와 운영 안정성을 고려
-- SBERT는 문맥 기반 의미 표현을 담당하고, 실제 분류는 가벼운 Logistic Regression으로 수행
-- GPU 의존도를 줄이고 CPU 환경에서도 안정적으로 서빙 가능하도록 설계
+- 데이터셋 규모가 크지 않은 환경에서 **추론 속도와 운영 안정성**을 고려
+- SBERT는 **문맥 기반 의미 표현**을 담당하고, 실제 분류는 **가벼운 Logistic Regression**으로 수행
+- **GPU 의존도를 줄이고 CPU 환경에서도 안정적으로 서빙** 가능하도록 설계
 
 ## 2. Domain → Intent 계층형 분류 구조
 
-> confusion matrix를 분석하다가 Finance 샘플 160개 중 21개가 Admin으로 분류되는 것을 발견했습니다. "비용 처리" 관련 표현이 "행정 업무"와 임베딩 공간에서 가깝게 배치되어 있었고, domain classifier의 Finance recall이 0.72로 병목이 되고 있었습니다. domain이 틀리면 intent classifier 성능과 무관하게 오답을 낼 수밖에 없는 구조라, domain 분류를 먼저 안정화하는 방향이 핵심이라고 판단했습니다.
+> confusion matrix를 분석하다가 **Finance 샘플 160개 중 21개가 Admin으로 분류**되는 것을 발견했습니다. "비용 처리" 관련 표현이 "행정 업무"와 임베딩 공간에서 가깝게 배치되어 있었고, **domain classifier의 Finance recall이 0.72**로 병목이 되고 있었습니다. domain이 틀리면 intent classifier 성능과 무관하게 오답을 낼 수밖에 없는 구조라, **domain 분류를 먼저 안정화하는 방향이 핵심**이라고 판단했습니다.
 
 이에 따라 `Domain → Intent` 계층형 classifier 구조를 도입했습니다.
 
 - intent 후보군을 domain 단위로 좁혀 cross-domain 오분류 감소
 - domain-aware classifier로 각 domain별 intent 분리 관리 가능
 
-**Domain 분류기 최종 성능 (Macro F1: 0.74 / Accuracy: 0.75)**
+**Domain 분류기 성능 측정 결과 (Macro F1: 0.74 / Accuracy: 0.75)**
 
 | Domain | F1 |
 |---|---|
@@ -84,7 +84,7 @@ FastAPI · SentenceTransformers(SBERT) · Scikit-learn · RabbitMQ · SageMaker 
 | IT/Ops | 0.62 |
 | Admin | 0.59 |
 
-> **Finance, HR, Marketing & PR, Sales**는 도메인 특화 표현이 뚜렷해 **0.80 이상의 F1**을 기록했습니다. 반면 **Admin, Customer Support, IT/Ops**는 업무 범위가 유사해 일부 혼동이 발생했습니다. (예: "계정 생성 요청"은 Admin과 IT/Ops 양쪽에 해당 가능, "기술 지원 요청"은 CS와 IT/Ops가 겹침)
+Finance, HR, Marketing & PR, Sales는 도메인 특화 표현이 뚜렷해 **0.80 이상의 F1**을 기록했습니다. 반면 **Admin, Customer Support, IT/Ops**는 업무 범위가 유사해 일부 혼동이 발생했습니다. (예: "계정 생성 요청"은 Admin과 IT/Ops 양쪽에 해당 가능, "기술 지원 요청"은 CS와 IT/Ops가 겹침)
 
 ### 데이터셋 및 분류 범위
 
@@ -96,15 +96,15 @@ FastAPI · SentenceTransformers(SBERT) · Scikit-learn · RabbitMQ · SageMaker 
 
 ## 3. LLM은 후처리에만 사용
 
-- LLM 단독 분류는 비용, latency, 응답 일관성 문제 존재
-- domain / intent 분류는 deterministic한 ML 모델이 담당
-- LLM은 summary, 일정 추출 같은 생성 기반 후처리에만 사용
+- LLM 단독 분류는 **비용, latency, 응답 일관성** 문제 존재
+- domain / intent 분류는 **deterministic한 ML 모델**이 담당
+- LLM은 **summary, 일정 추출 같은 생성 기반 후처리에만** 사용
 
 ## 4. RabbitMQ 기반 비동기 추론 구조
 
-- LLM 호출 및 일정 파싱은 latency variability 존재
-- backend와 AI inference를 느슨하게 분리하기 위해 RabbitMQ 기반 async pipeline 적용
-- retry / DLQ 기반 장애 격리 구조 구성
+- LLM 호출 및 일정 파싱은 **latency variability** 존재
+- backend와 AI inference를 **느슨하게 분리**하기 위해 RabbitMQ 기반 async pipeline 적용
+- **retry / DLQ 기반 장애 격리** 구조 구성
 
 ## 모델 학습 흐름
 
@@ -235,7 +235,7 @@ classifier를 무겁게 키우기보다 **embedding space 자체를 업무 inten
 
 fine-tuning 후 도메인별 intra-class cosine similarity를 측정했습니다. **IT/Ops(0.98), HR(0.93)**처럼 intent 간 표현 다양성이 낮은 도메인은 클러스터링이 잘 됐고, **Customer Support(0.78)**는 불만/문의/기술지원이 표현상 겹쳐 상대적으로 낮게 나왔습니다.
 
-![도메인별 Intra-class 평균 Cosine Similarity](docs/intraclass_similarity)
+![도메인별 Intra-class 평균 Cosine Similarity](docs/intraclass_similarity.png)
 
 **Trade-off:** fine-tuning artifact 저장 누락 가능성이 있어, 학습 후 reload 및 필수 파일 검증 로직을 추가했습니다.
 
@@ -345,6 +345,10 @@ Prometheus 기반 metrics를 구성했습니다.
 - latency / confidence / error 추적 가능
 - active model version 기반 배포 전후 비교 가능
 
+<img src="docs/모니터링.png" width="600"/>
+
+> Model Confidence가 45.9%로 나타난 것은 실제 사용 계정으로 테스트하는 과정에서 **스팸·매크로 광고성 메일이 다수 유입**되었기 때문입니다. 업무 이메일 분류 모델 특성상 해당 유형은 학습 범위 밖의 입력으로, **정상적인 업무 이메일 환경에서는 분류가 안정적으로 동작**합니다.
+
 ---
 
 # 4-3. 데이터 / MLOps
@@ -353,17 +357,17 @@ Prometheus 기반 metrics를 구성했습니다.
 
 ### 문제
 
-legacy artifact와 SageMaker artifact 구조가 혼재되어 runtime load failure 위험이 존재했습니다.
+legacy artifact와 SageMaker artifact 구조가 혼재되어 **runtime load failure** 위험이 존재했습니다.
 
 ### 해결
 
-표준 모델 artifact 구조를 정의하고 필수 파일 검증 로직을 적용했습니다.
+**표준 모델 artifact 구조를 정의**하고 필수 파일 검증 로직을 적용했습니다.
 
-운영 환경에서 artifact consistency를 유지하기 위해 표준 artifact 구조를 정의했습니다.
+운영 환경에서 **artifact consistency**를 유지하기 위해 표준 artifact 구조를 정의했습니다.
 
 ### 결과
 
-- artifact integrity 확보
+- **artifact integrity** 확보
 - deployment validation 가능
 - 모델 로딩 consistency 향상
 
@@ -371,13 +375,13 @@ legacy artifact와 SageMaker artifact 구조가 혼재되어 runtime load failur
 
 ### 문제
 
-active model version 관리 및 rollback 기준이 필요했습니다.
+active model version 관리 및 **rollback 기준**이 필요했습니다.
 
 ### 해결
 
 `latest.json` 기반 active candidate model 관리 구조를 적용했습니다.
 
-운영 서버와 deployment pipeline 간 version consistency를 유지하기 위해 latest.json 기반 구조를 적용했습니다.
+**운영 서버와 deployment pipeline 간 version consistency**를 유지하기 위해 latest.json 기반 구조를 적용했습니다.
 
 ### 결과
 
