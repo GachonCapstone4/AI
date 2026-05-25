@@ -334,7 +334,6 @@ legacy artifact와 SageMaker artifact 구조가 혼재되어 **runtime load fail
 
 # 회고 / 한계
 
-- **domain classifier 병목**: Admin / CS / IT/Ops 간 경계가 모호한 케이스에서 오분류가 발생하며, domain classifier 오류가 intent 단계까지 전파되는 구조적 한계가 있습니다
-- **데이터 다양성 한계**: 데이터셋 규모가 크지 않아 일부 intent는 샘플 부족 문제가 있었습니다. 노이즈 증강으로 보완했으나 실제 사용자 입력의 다양성을 완전히 커버하기는 어려웠습니다
-- **OOD 입력 대응**: 스팸·광고성 메일처럼 학습 범위 밖의 입력(Out-of-Distribution)에 대한 명시적 필터링이나 fallback 전략이 부재해, 실서비스 테스트 시 confidence가 낮아지는 상황이 발생했습니다
-- current/staging 모델 동시 로드로 메모리 사용량 증가 trade-off 존재
+- **domain classifier 병목** : Admin / CS / IT/Ops 간 경계가 모호한 케이스에서 오분류가 발생하며, domain classifier 오류가 intent 단계까지 전파되는 구조적 한계가 있습니다
+- **데이터 다양성 한계** : 데이터셋 규모가 크지 않아 일부 intent는 샘플 부족 문제가 있었습니다. 노이즈 증강으로 보완했으나 실제 사용자 입력의 다양성을 완전히 커버하기는 어려웠습니다
+- **OOD 입력 대응** : 스팸·광고성 메일처럼 학습 범위 밖의 입력(Out-of-Distribution)에 대한 명시적 필터링이나 fallback 전략이 부재해, 실서비스 테스트 시 confidence가 낮아지는 상황이 발생했습니다
