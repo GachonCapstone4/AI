@@ -178,6 +178,9 @@ flowchart TD
 
 ![계층형 모델 구조](docs/계층형%20모델%20구조.png)
 
+<details>
+<summary>계층형 분류 모델 구성 보기</summary>
+
 | 구성 요소 | 사용 기술 | 역할 |
 |---|---|---|
 | Text Embedding | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | 이메일 텍스트를 의미 벡터로 변환 |
@@ -185,6 +188,8 @@ flowchart TD
 | Domain Classifier | `LogisticRegression` | 상위 업무 영역 분류 |
 | Intent Classifier | `dict[str, LogisticRegression]` | Domain별 세부 intent 분류 |
 | LLM Processor | 학교 GPU 서버 기반 LLM API | 요약 및 일정 표현 추출 |
+
+</details>
 
 ## AI 운영 및 MLOps 아키텍처
 
