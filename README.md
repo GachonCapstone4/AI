@@ -233,7 +233,7 @@ classifier를 무겁게 키우기보다 **embedding space 자체를 업무 inten
 
 ### 결과
 
-fine-tuning 후 도메인별 intra-class cosine similarity를 측정했습니다. **IT/Ops(0.98), HR(0.93)**처럼 intent 간 표현 다양성이 낮은 도메인은 클러스터링이 잘 됐고, **Customer Support(0.78)**는 불만/문의/기술지원이 표현상 겹쳐 상대적으로 낮게 나왔습니다.
+fine-tuning 후 도메인별 intra-class cosine similarity를 측정했습니다. **IT/Ops(0.98)**, **HR(0.93)**처럼 intent 간 표현 다양성이 낮은 도메인은 클러스터링이 잘 됐고, **Customer Support(0.78)**는 불만/문의/기술지원이 표현상 겹쳐 상대적으로 낮게 나왔습니다.
 
 ![도메인별 Intra-class 평균 Cosine Similarity](docs/intraclass_similarity.png)
 
