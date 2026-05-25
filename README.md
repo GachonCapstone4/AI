@@ -84,7 +84,7 @@ FastAPI · SentenceTransformers(SBERT) · Scikit-learn · RabbitMQ · SageMaker 
 | IT/Ops | 0.62 |
 | Admin | 0.59 |
 
-> Finance, HR, Marketing & PR, Sales는 도메인 특화 표현이 뚜렷해 0.80 이상의 F1을 기록했습니다. 반면 Admin, Customer Support, IT/Ops는 업무 범위가 유사해 일부 혼동이 발생했습니다. (예: "계정 생성 요청"은 Admin과 IT/Ops 양쪽에 해당 가능, "기술 지원 요청"은 CS와 IT/Ops가 겹침)
+> **Finance, HR, Marketing & PR, Sales**는 도메인 특화 표현이 뚜렷해 **0.80 이상의 F1**을 기록했습니다. 반면 **Admin, Customer Support, IT/Ops**는 업무 범위가 유사해 일부 혼동이 발생했습니다. (예: "계정 생성 요청"은 Admin과 IT/Ops 양쪽에 해당 가능, "기술 지원 요청"은 CS와 IT/Ops가 겹침)
 
 ### 데이터셋 및 분류 범위
 
@@ -137,6 +137,9 @@ flowchart TD
 
 ![계층형 모델 구조](docs/계층형%20모델%20구조.png)
 
+<details>
+<summary>계층형 분류 모델 구성 보기</summary>
+
 | 구성 요소 | 사용 기술 | 역할 |
 |---|---|---|
 | Text Embedding | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | 이메일 텍스트를 의미 벡터로 변환 |
@@ -144,6 +147,8 @@ flowchart TD
 | Domain Classifier | `LogisticRegression` | 상위 업무 영역 분류 |
 | Intent Classifier | `dict[str, LogisticRegression]` | Domain별 세부 intent 분류 |
 | LLM Processor | 학교 GPU 서버 기반 LLM API | 요약 및 일정 표현 추출 |
+
+</details>
 
 ## AI 운영 및 MLOps 아키텍처
 
@@ -196,13 +201,13 @@ sequenceDiagram
 
 ### 문제
 
-> confusion matrix를 분석하다가 Finance 샘플 160개 중 21개가 Admin으로 분류되는 것을 발견했습니다. "비용 처리" 관련 표현이 "행정 업무"와 임베딩 공간에서 가깝게 배치되어 Finance recall이 0.72로 나타났고, domain이 틀리면 intent classifier 성능과 무관하게 오답이 나오는 구조라 domain 분류 안정화가 핵심이라고 판단했습니다. 전체 domain classifier Macro F1은 0.74로, Admin(0.59) / CS(0.64) / IT/Ops(0.62) 세 도메인이 업무 범위 유사성으로 인해 낮게 나타났습니다.
+> confusion matrix를 분석하다가 **Finance 샘플 160개 중 21개가 Admin으로 분류**되는 것을 발견했습니다. "비용 처리" 관련 표현이 "행정 업무"와 임베딩 공간에서 가깝게 배치되어 **Finance recall이 0.72**로 나타났고, domain이 틀리면 intent classifier 성능과 무관하게 오답이 나오는 구조라 **domain 분류 안정화가 핵심**이라고 판단했습니다. 전체 domain classifier **Macro F1은 0.74**로, Admin(0.59) / CS(0.64) / IT/Ops(0.62) 세 도메인이 업무 범위 유사성으로 인해 낮게 나타났습니다.
 
 ### 해결
 
 `Domain → Intent` 계층형 classifier 구조를 도입했습니다.
 
-먼저 domain으로 업무 영역을 좁힌 뒤 intent를 분류하도록 구성해
+먼저 **domain으로 업무 영역을 좁힌 뒤 intent를 분류**하도록 구성해
 cross-domain confusion을 줄이고 domain-aware classifier를 운영할 수 있도록 설계했습니다.
 
 ### 결과
@@ -219,16 +224,16 @@ cross-domain confusion을 줄이고 domain-aware classifier를 운영할 수 있
 
 ### 해결
 
-Contrastive Pair 기반 SBERT fine-tuning을 적용했습니다.
+**Contrastive Pair 기반 SBERT fine-tuning**을 적용했습니다.
 
-- Positive: 같은 intent
-- Hard Negative: 같은 domain의 다른 intent
+- **Positive**: 같은 intent
+- **Hard Negative**: 같은 domain의 다른 intent
 
-classifier를 무겁게 키우기보다 embedding space 자체를 업무 intent 기준으로 정렬하는 방향을 선택했습니다.
+classifier를 무겁게 키우기보다 **embedding space 자체를 업무 intent 기준으로 정렬**하는 방향을 선택했습니다.
 
 ### 결과
 
-fine-tuning 후 도메인별 intra-class cosine similarity를 측정했습니다. IT/Ops(0.98), HR(0.93)처럼 intent 간 표현 다양성이 낮은 도메인은 클러스터링이 잘 됐고, Customer Support(0.78)는 불만/문의/기술지원이 표현상 겹쳐 상대적으로 낮게 나왔습니다.
+fine-tuning 후 도메인별 intra-class cosine similarity를 측정했습니다. **IT/Ops(0.98), HR(0.93)**처럼 intent 간 표현 다양성이 낮은 도메인은 클러스터링이 잘 됐고, **Customer Support(0.78)**는 불만/문의/기술지원이 표현상 겹쳐 상대적으로 낮게 나왔습니다.
 
 ![도메인별 Intra-class 평균 Cosine Similarity](docs/intraclass_similarity)
 
@@ -242,9 +247,9 @@ fine-tuning 후 도메인별 intra-class cosine similarity를 측정했습니다
 
 ### 해결
 
-소수 클래스 성능이 묻히지 않도록 macro F1 기반 검증 전략을 적용하고, domain / intent 분포를 사전 분석했습니다.
+소수 클래스 성능이 묻히지 않도록 **macro F1 기반 검증 전략**을 적용하고, domain / intent 분포를 사전 분석했습니다.
 
-**Trade-off:** macro F1은 전체 accuracy보다 낮게 측정될 수 있지만, 실제 intent별 일반화 성능을 더 잘 반영합니다.
+**Trade-off:** macro F1은 전체 accuracy보다 낮게 측정될 수 있지만, **실제 intent별 일반화 성능**을 더 잘 반영합니다.
 
 ### 결과
 
@@ -255,11 +260,11 @@ fine-tuning 후 도메인별 intra-class cosine similarity를 측정했습니다
 
 ### 문제
 
-학습 데이터를 LLM으로 생성했기 때문에 intent classifier F1이 1.00에 가깝게 나왔습니다. 이는 SBERT가 도메인 내 intent를 완벽하게 선형 분리하고 있다는 뜻이기도 하지만, 동시에 데이터가 지나치게 정형화되어 실제 사용자 입력에 취약할 수 있다는 신호이기도 했습니다.
+학습 데이터를 LLM으로 생성했기 때문에 **intent classifier F1이 1.00에 가깝게** 나왔습니다. 이는 SBERT가 도메인 내 intent를 완벽하게 선형 분리하고 있다는 뜻이기도 하지만, 동시에 **데이터가 지나치게 정형화되어 실제 사용자 입력에 취약**할 수 있다는 신호이기도 했습니다.
 
 ### 해결
 
-실제 현업 이메일에서 나타나는 구어체, 오타, 도메인 모호 케이스를 직접 가이드라인으로 정의하고 노이즈 데이터를 추가 증강했습니다.
+실제 현업 이메일에서 나타나는 구어체, 오타, 도메인 모호 케이스를 직접 **가이드라인으로 정의하고 노이즈 데이터를 추가 증강**했습니다.
 
 - 구어체 및 문법 파괴 ("확인부탁드림니다", "빨리좀요")
 - Admin/Finance처럼 경계가 모호한 중의적 표현
@@ -284,15 +289,15 @@ fine-tuning 후 도메인별 intra-class cosine similarity를 측정했습니다
 
 `preload → validate → switch` 기반 단계적 배포 구조를 구성했습니다.
 
-staging 영역에서 검증 후 switch하도록 구성해, 새 모델 검증 실패가 current model 장애로 이어지지 않도록 설계했습니다.
+staging 영역에서 검증 후 switch하도록 구성해, **새 모델 검증 실패가 current model 장애로 이어지지 않도록** 설계했습니다.
 
 ### 결과
 
-- 검증 실패 시 current model 유지
+- **검증 실패 시 current model 유지**
 - runtime 장애 방지
 - rollback-safe deployment 가능
 
-**Trade-off:** current / staging 모델이 동시에 메모리에 올라가기 때문에 일시적으로 메모리 사용량이 증가할 수 있습니다.
+**Trade-off:** current / staging 모델이 동시에 메모리에 올라가기 때문에 **일시적으로 메모리 사용량이 증가**할 수 있습니다.
 
 ## Ⅱ. LLM fallback 처리
 
@@ -304,7 +309,7 @@ LLM 장애 발생 시 전체 응답 실패 가능성이 존재했습니다.
 
 분류와 생성 역할을 분리하고 summary fallback 처리를 적용했습니다.
 
-LLM 실패가 전체 inference failure로 이어지지 않도록 classification 결과를 독립적으로 유지했습니다.
+**LLM 실패가 전체 inference failure로 이어지지 않도록** classification 결과를 독립적으로 유지했습니다.
 
 ### 결과
 
