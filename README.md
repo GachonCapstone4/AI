@@ -30,16 +30,11 @@
 
 # AI 서버 담당 (전민지)
 
-<details>
-<summary><strong>AI 서버 상세 구현 내용 보기</strong></summary>
-
-<br>
-
-- SBERT 기반 계층형 이메일 분류 구조 설계 및 inference pipeline 구현
+- SBERT 기반 계층형 이메일 분류 및 inference pipeline 설계
 - FastAPI + RabbitMQ 기반 AI inference / deployment consumer 구현
-- SageMaker training container 및 S3 model artifact 관리 구조 구현
-- `preload → validate → switch` 기반 무중단 배포 흐름 구현
-- Prometheus 기반 운영 모니터링 구성
+- SageMaker training pipeline 및 S3 model artifact 관리 구조 구현
+- `preload → validate → switch` 기반 무중단 모델 배포 구조 구현
+- Prometheus 기반 운영 모니터링 및 테스트 구성
 
 </details>
 
