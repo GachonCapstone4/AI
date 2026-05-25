@@ -4,8 +4,7 @@
 
 ![README Hero Diagram](docs/README%20Hero%20Diagram.png)
 
-> 실제 운영 중인 업무 이메일 자동화 AI 서비스  
-> Production URL: https://capstone.studylink.click/
+> https://capstone.studylink.click/
 
 ---
 
