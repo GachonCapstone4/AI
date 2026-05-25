@@ -13,7 +13,10 @@
 
 ![README Hero Diagram](docs/README%20Hero%20Diagram.png)
 
-> https://capstone.studylink.click/
+> **https://capstone.studylink.click/**
+
+> 현재 서비스는 재수집·재학습 기반으로 운영되고 있으며,
+> 모델 성능은 데이터셋과 모델 버전에 따라 지속적으로 업데이트됩니다.
 
 ---
 
