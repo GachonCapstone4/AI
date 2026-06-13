@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 jobs:
   build-and-push:
-    runs-on: ubuntu-latest
+    runs-on:  ubuntu-24.04-arm
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -24,4 +24,6 @@ jobs:
           file: ./Dockerfile
           platforms: linux/arm64           # ← 이 줄 추가!
           push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           tags: ${{ vars.CAPSTONE_CI_VAR }}/capstoneai:latest,${{ vars.CAPSTONE_CI_VAR }}/capstoneai:${{ github.sha }}
